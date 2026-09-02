@@ -65,7 +65,7 @@ plus an HTTP flush of business events the cloud must apply with its own logic
 1. **Every cloud write to a replicated collection MUST stamp the checkpoint
    field** (`serverTimestamp: FieldValue.serverTimestamp()`) and `_deleted:
    false` — the RxDB Firestore plugin pulls by `serverTimestamp > checkpoint`;
-   an unstamped document is invisible to replication, silently and forever.
+   an unstamped document is never pulled by replication.
 2. **Three replication tiers, chosen per collection**: pull-only (config the
    site consumes), bidirectional (operational state the site mutates), push-only
    (logs the site produces). Getting a collection's tier wrong is the main
@@ -129,7 +129,7 @@ plus an HTTP flush of business events the cloud must apply with its own logic
 | Local API auth | AuthGuard, HMAC, replay window, offline JWT fallback, kiosk key | [auth.md](references/auth.md) |
 | Offline endpoints and writes | availability, mutex, offline booking, check-in, pricing stock filter | [local-api.md](references/local-api.md) |
 | On-site deployment and runbook | systemd, nginx, self-signed TLS, mDNS, avahi, journalctl, rollback | [operations.md](references/operations.md) |
-| What was fixed vs. the earlier implementation | provenance, audit, deviations, kept deliberately | [provenance.md](references/provenance.md) |
+| The ledger: what the audit changed, kept, added | provenance, audit, deviations, kept deliberately | [provenance.md](references/provenance.md) |
 
 Passing vitest suite for the trust-critical logic (HMAC verify, offline token
 decode, delta fold-out on real RxDB, failover rescan):

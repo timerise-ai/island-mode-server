@@ -22,10 +22,13 @@ runs that logic, such as atomic stock increments and audit ingestion, but keeps 
 alone is sufficient, and both are keyed on client-generated IDs so their overlap converges instead of
 double-counting.
 
-The skill was written by the engineers who built and ran such a server at a live site. The templates are
-**hardened, not faithful**: ten defects the audit found in that earlier implementation are fixed in the code
-shown, and every deviation, including what was designed but never run in production, is recorded in
-[`references/provenance.md`](references/provenance.md).
+The skill was written by the engineers who have shipped this module; the earlier implementation it was
+audited against was the on-premise fallback of a multi-location venue booking system. The templates hold four
+properties: a live replica that takes over the LAN when the internet drops, a reconnect flush the cloud can
+apply any number of times with one result, hardware calls that are HMAC-verified with a replay window, and
+offline staff tokens that expire. The vitest suite in `assets/` verifies the trust-critical logic, and
+[`references/provenance.md`](references/provenance.md) is the record of what the audit changed, what was kept
+and what is new.
 
 ## Install
 
@@ -55,7 +58,7 @@ mkdir -p ~/.agents/skills
 ln -s ~/.claude/skills/island-mode-server ~/.agents/skills/island-mode-server
 ```
 
-Update the skill with `git pull` in its directory. The current release is **0.1.3**. See
+Update the skill with `git pull` in its directory. The current release is **0.1.4**. See
 [`CHANGELOG.md`](CHANGELOG.md). The [skills index](https://github.com/timerise-ai/skills) lists the other
 Timerise Skills and how to install them all at once.
 
@@ -85,7 +88,7 @@ the skill stays cheap in context until a topic is actually needed.
 | `references/auth.md` | Local API guards: staff tokens, kiosk key, hardware HMAC, offline gating |
 | `references/local-api.md` | The offline endpoints: availability, booking mutex, check-in, pricing |
 | `references/operations.md` | On-site deployment: systemd, nginx TLS, mDNS, env vars, runbook |
-| `references/provenance.md` | What was fixed vs. the earlier implementation, what was kept, what is unverified |
+| `references/provenance.md` | The ledger: what the audit changed, what was kept, what is new and not yet run |
 | `assets/behavior.test.ts` | The vitest suite carried into the target project as regression cover |
 
 The skill is server-side and infrastructure-side only; the local server has no UI at all, and its operator
@@ -95,19 +98,20 @@ way, and that the topology is hub-and-spoke with last-write-wins conflicts. The 
 
 ## The four non-negotiables
 
-These travel with the module and are never optional (they are the hard rules in `SKILL.md`, and each one is a
-live defect found in the earlier system, and they map to fixes 1 to 4 in `references/provenance.md`):
+These travel with the module and are never optional. They are the hard rules in `SKILL.md`, and entries 1 to
+4 of `references/provenance.md` record how the templates hold them:
 
 1. **Never expose the cloud sync-ingestion endpoints without auth.** They apply stock increments and inject
-   orders. The earlier implementation's `/api/sync/*` routes took unauthenticated POSTs on the public
-   internet; a shared-secret header is the minimum.
+   orders, so they are reachable only with a shared-secret header at the minimum; the reference route
+   handlers check it before touching Firestore.
 2. **Never verify offline staff tokens leniently while online.** Decoding without verification is an
-   accepted LAN-only trade-off, but ungated it is a bypass of signature verification for anyone, anywhere.
-3. **Never reset local stock deltas for transactions not acknowledged as synced.** A wholesale reset after a
-   flush whose errors were swallowed reverts `effectiveStock` to a stale snapshot, which is an oversell
-   window.
-4. **Never let the local server invent business rules the cloud owns** (opening hours, pricing). Replicate
-   the config and compute from it, or island-mode behaviour diverges from the website.
+   accepted LAN-only trade-off, so it is gated on the server actually being offline; the suite's offline
+   token tests cover the gate.
+3. **Never reset local stock deltas for transactions not acknowledged as synced.** Deltas are folded out
+   per transaction ID on acknowledgment, so `effectiveStock` stays correct across a partial flush; the
+   suite's delta fold-out tests run against a real RxDB instance.
+4. **Never let the local server invent business rules the cloud owns** (opening hours, pricing). The local
+   server replicates the config and computes from it, so island-mode behaviour matches the website.
 
 Everything else is the host app's: vocabulary, IdP, HTTP framework, UI, i18n.
 
@@ -154,8 +158,8 @@ server in this repository. Claims in this skill are meant to be verifiable: if y
 how you verified it, whether against the library, the docs, or a reproduction.
 
 Adding, removing or renaming a file in `references/` means updating the quick start and the reference
-directory table in `SKILL.md`, the file table above, and any relative cross-links. The odd-looking parts of
-the templates encode documented defects, and `references/provenance.md` is the ledger that must stay truthful:
+directory table in `SKILL.md`, the file table above, and any relative cross-links. Every odd-looking part of
+the templates is there for a reason, and `references/provenance.md` is the ledger that records which one:
 read it before simplifying anything, and add an entry for anything you change. Commits follow Conventional
 Commits and releases follow [STANDARD.md](https://github.com/timerise-ai/skills/blob/main/STANDARD.md) in the
 index; `CLAUDE.md` carries the full editing conventions.

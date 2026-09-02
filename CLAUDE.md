@@ -52,9 +52,11 @@ wrapped in backticks.
 **README.md is for humans, SKILL.md is for the agent.** The README carries the
 pitch, install instructions for every skills-compatible host, the coverage
 table, the four hard rules and the seams table — never routing detail or
-template code. Every factual claim in it (library
-versions, the test count, the defect count) must match `references/provenance.md`;
-that file is the record, the README is a restatement. Releases follow
+template code. It describes the module by the properties the templates hold
+and the suite verifies, never by what the earlier implementation got wrong.
+Every factual claim in it (library versions, the test count) must match
+`references/provenance.md`; that file is the record, the README is a
+restatement. Releases follow
 [SemVer](https://semver.org) and land in `CHANGELOG.md` under a dated heading;
 git tags are the version of record — there is no version field in the SKILL.md
 frontmatter, and the README's "current release" line must name the newest
@@ -78,9 +80,9 @@ drift from the file.
 
 **Do not weaken the four hard rules** in SKILL.md (auth on cloud ingestion,
 offline-gated token fallback, per-ID delta reset, no locally-invented business
-rules). They correspond to fixes 1–4 in the provenance ledger — each one is a
-live defect the audit found in the earlier implementation, not a stylistic
-preference.
+rules). They correspond to entries 1 to 4 in the provenance ledger, which
+records why each one holds; none is a stylistic preference. The ledger has ten
+entries under *Fixed in the templates*, and that count lives there only.
 
 ## Content invariants the templates depend on
 
@@ -96,7 +98,7 @@ These recur across references; changing one requires sweeping all of them.
 - **Meta-fields** (`_offlineCreated`, `_locallyModified`, `_synced`,
   `serverTimestamp`, `_deleted`) are declared in `architecture.md` and must
   appear in every RxDB schema in `replication.md`. An undeclared meta-field is
-  itself one of the audited defects.
+  itself a ledger entry.
 - **Every cloud write to a replicated collection stamps `serverTimestamp` and
   `_deleted: false`.** Any new cloud-side template code must do this; omitting
   it makes the document permanently invisible to replication.
