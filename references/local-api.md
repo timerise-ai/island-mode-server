@@ -13,7 +13,7 @@ Reference surface (rename paths to your domain):
 | GET | `/health` | none | liveness + mode (used by terminals to discover the server) |
 | GET | `/status` | none* | replication + collection diagnostics |
 | GET | `/api/locations/list` | none | site list (from replica, config fallback) |
-| GET | `/api/booking/slots?date&rangeType` | none | availability computed from the replica |
+| GET | `/api/booking/slots?date&slotType` | none | availability computed from the replica |
 | POST | `/api/kiosk/booking/create` | kiosk key | offline booking |
 | GET | `/api/staff/bookings/today` | staff | today's bookings |
 | POST | `/api/staff/bookings/check-in` | staff | check-in stamp |
@@ -73,8 +73,8 @@ export interface SlotAvailability {
   timeFrom: string;        // 'HH:00'
   timeTo: string;
   dateTimeFrom: string;    // '<date>THH:00:00'
-  availableLanes: number;
-  totalLanes: number;
+  availableStations: number;
+  totalStations: number;
 }
 
 export class AvailabilityService {
@@ -94,18 +94,18 @@ export class AvailabilityService {
     return { startHour, endHour };
   }
 
-  async getAvailableSlots(date: string, rangeType: string): Promise<SlotAvailability[]> {
+  async getAvailableSlots(date: string, slotType: string): Promise<SlotAvailability[]> {
     // 1. Capacity: active slot-type inventory for this station type.
     const inventoryDocs = await this.db.getCollection('inventory')
       .find({ selector: { locationId: this.locationId, type: 'slot', active: true } })
       .exec();
-    const matching = inventoryDocs.filter((d: any) => d.toJSON().details?.slotType === rangeType);
-    const totalLanes = matching.reduce((sum: number, d: any) => sum + (d.toJSON().details?.capacity ?? 1), 0);
-    if (totalLanes === 0) return [];
+    const matching = inventoryDocs.filter((d: any) => d.toJSON().details?.slotType === slotType);
+    const totalStations = matching.reduce((sum: number, d: any) => sum + (d.toJSON().details?.capacity ?? 1), 0);
+    if (totalStations === 0) return [];
 
     // 2. Occupancy: confirmed bookings whose cart slots fall on this date.
     const bookings = await this.db.getCollection('bookings')
-      .find({ selector: { locationId: this.locationId, rangeType, status: 'CONFIRMED' } })
+      .find({ selector: { locationId: this.locationId, slotType, status: 'CONFIRMED' } })
       .exec();
     const datePrefix = `${date}T`;
     const occupied = new Map<string, number>();
@@ -127,8 +127,8 @@ export class AvailabilityService {
         timeFrom,
         timeTo: `${String(hour + 1).padStart(2, '0')}:00`,
         dateTimeFrom: `${date}T${timeFrom}:00`,
-        availableLanes: Math.max(0, totalLanes - (occupied.get(timeFrom) ?? 0)),
-        totalLanes,
+        availableStations: Math.max(0, totalStations - (occupied.get(timeFrom) ?? 0)),
+        totalStations,
       });
     }
     return result;
@@ -149,7 +149,7 @@ export function todayAtSite(timeZone: string): string {
 
 ## Offline booking creation
 
-Serialized through a mutex so two kiosks cannot double-book the last lane —
+Serialized through a mutex so two kiosks cannot double-book the last station:
 the replica is process-local, so a process-local mutex is a complete fix.
 
 ```ts
@@ -163,8 +163,8 @@ export async function createOfflineBooking(deps: {
   bookings: any;                       // RxCollection
   locationId: string;
 }, request: {
-  rangeType: string;
-  slots: Array<{ time: string; dateTimeFrom: string; lane: string; price: number }>;
+  slotType: string;
+  slots: Array<{ time: string; dateTimeFrom: string; station: string; price: number }>;
   ammunition?: Array<{ price: number; quantity: number; [k: string]: unknown }>;
   contactInfo: { fullName: string; email: string; phone: string };
   source: 'kiosk' | 'walk-in';
@@ -175,11 +175,11 @@ export async function createOfflineBooking(deps: {
     if (request.slots.length > 0) {
       const firstSlot = request.slots[0]!;
       const date = firstSlot.dateTimeFrom.split('T')[0]!;
-      const available = await deps.availability.getAvailableSlots(date, request.rangeType);
+      const available = await deps.availability.getAvailableSlots(date, request.slotType);
       for (const slot of request.slots) {
         const timeFrom = slot.time.substring(0, 5);   // normalize '14:00-15:00' → '14:00'
         const info = available.find((a) => a.timeFrom === timeFrom);
-        if (!info || info.availableLanes <= 0) {
+        if (!info || info.availableStations <= 0) {
           throw new Error(`Slot ${slot.time} is not available`);
         }
       }
@@ -191,7 +191,7 @@ export async function createOfflineBooking(deps: {
 
     const booking = {
       id: `offline-${randomUUID()}`,          // provenance-visible ID
-      rangeType: request.rangeType,
+      slotType: request.slotType,
       locationId: deps.locationId,
       pricing: { slotsTotal, ammoTotal, discount: 0, grandTotal: slotsTotal + ammoTotal, currency: request.currency },
       // Offline can't charge cards: COUNTER pays at the desk, others settle on reconnect.

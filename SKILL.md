@@ -4,7 +4,7 @@ description: >
   Build an on-premise fallback server that keeps a live two-way replica of
   remote Firestore data (RxDB replication) and takes over serving LAN clients
   when the cloud is unreachable, then flushes offline work back on reconnect.
-  Use when: (1) a physical site (store, range, gym, clinic, warehouse) must keep
+  Use when: (1) a physical site (store, gym, clinic, warehouse) must keep
   operating through internet outages, (2) the user mentions: "local server with
   two-way sync to Firestore", "island mode", "offline fallback server", "LAN
   failover", "on-prem replica", "site keeps working when internet is down",

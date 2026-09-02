@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-09-02
+
+Wording release. Templates and technical content are unchanged in behaviour from 0.1.2.
+
+### Changed
+- `references/local-api.md`: the availability and booking templates use the neutral
+  identifiers `slotType` and `station` for the slot kind and the bookable unit, and
+  the mutex comment speaks of the last station. Rename to the host app's own
+  vocabulary as `adaptation.md` already says.
+- `SKILL.md`: the list of example site types in the description no longer names a
+  specific venue kind.
+
 ## [0.1.2] - 2026-09-02
 
 Wording release. The origin and audit statements across the skill follow section 2 of
