@@ -135,3 +135,5 @@ Passing vitest suite for the trust-critical logic (HMAC verify, offline token
 decode, delta fold-out on real RxDB, failover rescan):
 [assets/behavior.test.ts](assets/behavior.test.ts) — carry it into the target
 project as regression cover.
+
+Part of the [Timerise Skills](https://github.com/timerise-ai/skills) index, which lists the sibling skills.

@@ -12,7 +12,7 @@ repo, but only so the skill can be cloned and versioned; `git` here tracks
 prose, not code.
 
 ```
-SKILL.md                  entry point: frontmatter trigger + critical facts + routing table
+SKILL.md                  entry point: frontmatter trigger + critical facts + routing table + index line
 references/*.md           7 topic files + provenance.md, loaded on demand by the routing table
 assets/behavior.test.ts   vitest suite shipped INTO the target project
 README.md                 human-facing: pitch, install, coverage table, hard rules, seams
