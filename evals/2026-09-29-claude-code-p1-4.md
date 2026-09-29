@@ -23,3 +23,12 @@ isolated: true
 timedOut: false
 runUrl: https://github.com/timerise-ai/island-mode-server/actions/runs/36580497295
 ---
+
+Rubric 7/8, scored from the summary. This is the re-run of the job that failed with an API 503. Checks pass,
+and the suite ran unmodified, 17 of 17. Tenant scope, wiring, the env files, the four hard rules and the
+four handover items hold. The JSONL journal is the documented storage option, and `rentals` is the rename
+table's add-ons row. Item 2 fails on one template change, which points at a real defect: it pinned
+`firebase` to 11.6.0, because rxdb 16.11 depends on exactly that version and the skill's `11.10.0` installs
+a second copy. A probe confirmed that the plugin's copy then throws on the host's Firestore instance in
+`writeBatch`, `doc` and `waitForPendingWrites` ("Did you pass a reference from a different Firestore
+SDK?"), so every push fails.
