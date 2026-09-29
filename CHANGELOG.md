@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-09-29
+
+Wording and layout release. The templates are unchanged in behaviour from 0.1.5.
+
+### Added
+
+- Every TypeScript, TSX and JSON block in `references/` names its destination file on
+  the first line: `local-server/src/` for the local server, `lib/island/` for the
+  terminal client, `app/api/` for the cloud routes. The suggested layout is recorded
+  under *Added* in `references/provenance.md`.
+- The quick start in `SKILL.md` ends with carrying `assets/behavior.test.ts` into
+  `local-server/src/`, and the reference directory lists it.
+
+### Changed
+
+- `SKILL.md`: the frontmatter description follows the index's standard order, each
+  critical fact is one bold sentence followed by the reason, and the body says the seam
+  contract lives in `references/architecture.md`.
+- `README.md`: a three-paragraph intro, a file table row for every file in the
+  repository including the eval workflow, and Verification before Not this.
+- `CLAUDE.md`: rewritten into the three standard sections (what the repository is,
+  structure, editing conventions), keeping every existing rule.
+- Plain punctuation throughout: em-dashes, en-dashes and arrows in the references,
+  `SKILL.md` and this changelog are rewritten as commas, colons or words.
+
 ## [0.1.5] - 2026-09-21
 
 Wording release. The skill content is unchanged from 0.1.4.
