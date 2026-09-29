@@ -161,6 +161,11 @@ erroring long after it had healed.
   `doc` and `waitForPendingWrites` threw on the host's Firestore instance
   (probe); the templates type-check against both copies, so only
   `npm ls firebase` shows it.
+- From the 0.1.10 agent eval, in 0.1.11: `initDatabase()` takes the storage
+  and `initFirebase()` the uid as arguments, so the documented variants
+  (persistent storage, per-site tokens) are chosen by the caller instead of by
+  editing a template; and the status cron stamps its `locations` update, the
+  one cloud write to a replicated collection that did not.
 - Delta-map **rebuild on boot**, as `StockService.rebuildDeltas()` since 0.1.8
   ([sync-flush.md](sync-flush.md)).
 - The JSONL journaling option for offline writes (listed as an option only).

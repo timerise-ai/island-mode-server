@@ -116,6 +116,7 @@ that is what prevents cloud/island double-booking.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { replicationStamp } from '@/lib/firestore/replication-stamp';
 
 const STALE_THRESHOLD_MS = 5 * 60_000;   // >= cron cadence, or sites flap
 
@@ -135,7 +136,8 @@ export async function GET(request: NextRequest) {
     if (!last) continue;   // site not running a local server, leave it alone
     const newStatus = now - last > STALE_THRESHOLD_MS ? 'offline' : 'online';
     if (newStatus !== (data.status ?? 'online')) {
-      await docSnap.ref.update({ status: newStatus, statusUpdatedAt: FieldValue.serverTimestamp() });
+      // `locations` is replicated: stamp it like every other cloud write.
+      await docSnap.ref.update({ status: newStatus, statusUpdatedAt: FieldValue.serverTimestamp(), ...replicationStamp() });
       updates.push({ id: docSnap.id, newStatus });
     }
   }

@@ -81,9 +81,11 @@ but not for offline-created documents. Options, in order of preference:
 | Journal offline writes to an append-only file (JSONL) next to memory storage, replay into RxDB on boot | ~a day of work | Only offline-created/unsynced docs need journaling |
 | Accept the loss window | free | Document it for operators; pair with `Restart=always` awareness; systemd restarting a crashed server mid-outage is silent data loss |
 
-Whichever you choose, **say so in the runbook**. The earlier implementation
-shipped memory storage while its deployment guide instructed operators to
-provision a persistent data directory that nothing used.
+Whichever you choose, **say so in the runbook**, and select it by passing
+`storage` to `initDatabase()` below; a journal is a new file beside it. The
+earlier implementation shipped memory storage while its deployment guide
+instructed operators to provision a persistent data directory that nothing
+used.
 
 ## Schemas
 
@@ -141,7 +143,7 @@ Database service (framework-neutral core):
 
 ```ts
 // local-server/src/database.service.ts
-import { createRxDatabase, addRxPlugin, type RxDatabase, type RxCollection } from 'rxdb';
+import { createRxDatabase, addRxPlugin, type RxDatabase, type RxCollection, type RxStorage } from 'rxdb';
 import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
 
@@ -157,11 +159,15 @@ export interface DatabaseCollections {
 }
 export type AppDatabase = RxDatabase<DatabaseCollections>;
 
-export async function initDatabase(schemas: Record<keyof DatabaseCollections, any>): Promise<AppDatabase> {
+/** The storage is the caller's choice; pass a persistent one here, never edit this file for it. */
+export async function initDatabase(
+  schemas: Record<keyof DatabaseCollections, any>,
+  storage: RxStorage<any, any> = getRxStorageMemory(),   // see the storage decision above
+): Promise<AppDatabase> {
   addRxPlugin(RxDBQueryBuilderPlugin);
   const db = await createRxDatabase<DatabaseCollections>({
     name: 'island-local',
-    storage: getRxStorageMemory(),   // see the storage decision above
+    storage,
     multiInstance: false,            // single Node process
   });
   await db.addCollections(
@@ -187,6 +193,7 @@ import { readFileSync } from 'fs';
 export async function initFirebase(opts: {
   serviceAccountPath: string;   // GOOGLE_APPLICATION_CREDENTIALS: Firebase Console > Service Accounts > new private key
   webApiKey: string;            // Project Settings > General > Web API key
+  uid?: string;                 // the uid the rules recognize; pass a per-site one to scope them
 }): Promise<{ firestore: Firestore; projectId: string; app: FirebaseApp; signedIn: Promise<void> }> {
   const serviceAccount = JSON.parse(readFileSync(opts.serviceAccountPath, 'utf-8'));
   if (!admin.apps.length) {
@@ -203,15 +210,15 @@ export async function initFirebase(opts: {
   // Sign-in needs the network, so it never blocks boot: an outage at start-up
   // must still give the local API its replica. Start replication when
   // `signedIn` resolves (see Startup order).
-  const signedIn = signInWithRetry(app);
+  const signedIn = signInWithRetry(app, opts.uid ?? 'local-server');
   return { firestore, projectId, app, signedIn };
 }
 
-async function signInWithRetry(app: FirebaseApp): Promise<void> {
+async function signInWithRetry(app: FirebaseApp, uid: string): Promise<void> {
   for (;;) {
     try {
-      // Admin SDK mints a token for the fixed uid the rules recognize.
-      const customToken = await admin.auth().createCustomToken('local-server');
+      // Admin SDK mints a token for the uid the rules recognize.
+      const customToken = await admin.auth().createCustomToken(uid);
       await signInWithCustomToken(getAuth(app), customToken);
       return;
     } catch (err) {
@@ -252,8 +259,9 @@ one for one; a rule under another name denies that collection entirely.
 
 Limitation to accept: all sites share the uid `local-server`, so rules cannot
 scope one site's server to its own documents, so a compromised site box can read
-other sites' bookings. If that matters, mint per-site tokens
-(`createCustomToken(locationId)` plus a claims check in rules).
+other sites' bookings. If that matters, pass a per-site `uid` to
+`initFirebase()` (for example `local-server-${locationId}`) and check it in
+the rules; the template takes it as an argument, so it is never edited for it.
 
 ## The replication service
 
