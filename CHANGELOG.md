@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-09-29
+
+From scoring the prompt-1 agent eval runs against 0.1.10.
+
+### Changed
+
+- `initDatabase(schemas, storage?)` takes the RxDB storage and `initFirebase({ uid? })`
+  the custom-token uid, defaulting to memory storage and `local-server` as before.
+  Persistent storage and per-site tokens are selected by the caller, not by editing
+  the templates.
+
+### Fixed
+
+- The status cron stamps its `locations` update with `replicationStamp()`, like every
+  other cloud write to a replicated collection.
+
 ## [0.1.10] - 2026-09-29
 
 Fix release, from scoring the prompt-1 agent eval runs against 0.1.9.
