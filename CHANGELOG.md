@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-09-29
+
+Fix release, from scoring the prompt-1 agent eval runs against 0.1.6.
+
+### Fixed
+
+- Stock ingestion skipped the increment when push replication had already written the
+  transaction document, which is the usual order on reconnect; the site then folded its
+  delta out, so cloud stock never moved and the site oversold. The receipt is now the
+  `inventoryLogs` entry only the ingestion writes, the apply lives in
+  `lib/sync/apply-stock-transaction.ts`, and the route never writes the replicated
+  document. Apps built from 0.1.6 or earlier should copy in `applyStockTransaction()`
+  and the new route.
+- Firestore rules: push-only collections grant `read`, which the RxDB push handler
+  needs before it writes; the `lock_logs` rule matches its collection name; `pricing`
+  has a rule. Apps built from earlier versions should redeploy the rules.
+- Availability offers no slots on a day the site config has no hours for, instead of
+  inventing 10:00 to 20:00.
+- The suite type-checks under `--noUncheckedIndexedAccess`; the flush and booking
+  blocks carry their imports; `lib/island/api-fetch.ts` is a complete wrapper.
+- The status cron answers 401 when `CRON_SECRET` is unset.
+
+### Added
+
+- `CORS_ORIGINS`, the cloud env list and a *Handover* section in
+  `references/operations.md`; `LOCATION_ID` is required, with no default.
+- Three tests: the ingestion receipt against a replicated transaction document, a
+  redelivery, and config-driven opening hours. 15 tests in 6 describe blocks.
+
+### Changed
+
+- `SKILL.md`: copy the templates as written and report a suspected defect in the
+  handover; the quick start names both env files, the suite's two imports and its count,
+  and ends with the handover.
+- The stated firebase version is 11.10, the version `references/replication.md` pins.
+
 ## [0.1.6] - 2026-09-29
 
 Wording and layout release. The templates are unchanged in behaviour from 0.1.5.
