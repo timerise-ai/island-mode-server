@@ -210,12 +210,20 @@ match /locations/{locationId} {
   allow write: if isLocalServer();          // heartbeat writes lastHeartbeatAt
 }
 match /inventory/{itemId}  { allow read: if isLocalServer(); }   // pull-only
+match /pricing/{id}        { allow read: if isLocalServer(); }   // pull-only
 match /staff/{staffId}     { allow read: if isLocalServer(); }   // pull-only
 match /bookings/{id}       { allow read, write: if isLocalServer(); } // bidirectional
 match /locks/{id}          { allow read, write: if isLocalServer(); } // bidirectional
-match /lockLogs/{id}       { allow write: if isLocalServer(); }  // push-only
-match /inventory_transactions/{id} { allow write: if isLocalServer(); } // push-only
+match /lock_logs/{id}      { allow read, write: if isLocalServer(); } // push-only, see below
+match /inventory_transactions/{id} { allow read, write: if isLocalServer(); } // push-only, see below
 ```
+
+Push-only still needs `read`. The plugin's push handler reads the documents it
+is about to write, inside a transaction, to detect conflicts: a query by ID
+first, then one `getDoc` per ID if the query is denied (rxdb 16.11,
+`plugins/replication-firestore`). With `write` alone both reads are denied and
+every push fails. Match the collection names the replication service uses,
+one for one; a rule under another name denies that collection entirely.
 
 Limitation to accept: all sites share the uid `local-server`, so rules cannot
 scope one site's server to its own documents, so a compromised site box can read

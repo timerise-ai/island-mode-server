@@ -131,6 +131,9 @@ unsynced work remains.
 
 ```ts
 // local-server/src/sync-flush.service.ts
+import type { RxCollection } from 'rxdb';
+import type { StockService } from './stock';
+
 export class SyncFlushService {
   private isFlushing = false;
   private retryTimer?: ReturnType<typeof setInterval>;
@@ -238,17 +241,25 @@ JSON-over-POST; port freely. Three rules, all load-bearing:
 
 1. **Authenticate.** These endpoints inject orders and move stock. A shared
    secret header (`x-sync-secret`, same env on both sides) is the minimum.
-2. **Idempotent per event ID.** Check whether the event was already applied
-   *inside a transaction with the apply*: a duplicate flush must be a no-op.
+2. **Idempotent per event ID, on a receipt only the ingestion writes.** Check
+   whether the event was already applied *inside a transaction with the
+   apply*: a duplicate flush must be a no-op. Never key the check on the
+   `inventory_transactions` document: push replication writes that document
+   too, usually before the flush arrives, and the increment would be skipped
+   while the site folds its delta out. The receipt is the `inventoryLogs`
+   entry, which nothing but this route writes.
 3. **Stamp replication fields** on every write to a replicated collection.
 
-```ts
-// app/api/sync/inventory-transactions/route.ts
-import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb } from '@/lib/firebase-admin';   // host's admin-SDK accessor
-import { FieldValue } from 'firebase-admin/firestore';
+The two paths own different documents for stock: replication writes the
+transaction document, the flush writes the increment and the log entry. The
+apply lives in a plain function so the suite can run it against a fake
+Firestore:
 
-interface IncomingTx {
+```ts
+// lib/sync/apply-stock-transaction.ts
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+
+export interface IncomingTx {
   id: string;
   inventoryItemId: string;
   locationId: string;
@@ -260,6 +271,37 @@ interface IncomingTx {
   performedByName: string;
   createdAt: string;
 }
+
+/** Apply one offline stock movement exactly once; a repeat delivery is a no-op. */
+export async function applyStockTransaction(db: Firestore, tx: IncomingTx): Promise<void> {
+  // Transaction = receipt check + increment + receipt, atomically.
+  await db.runTransaction(async (t) => {
+    // The log entry is the receipt. Not the inventory_transactions document:
+    // push replication writes that one, often before this flush arrives.
+    const logRef = db.collection('inventoryLogs').doc(tx.id);
+    if ((await t.get(logRef)).exists) return;   // already applied: at-least-once made harmless
+
+    t.update(db.collection('inventory').doc(tx.inventoryItemId), {
+      stockLevel: FieldValue.increment(tx.quantityChange),
+      updatedAt: FieldValue.serverTimestamp(),
+      serverTimestamp: FieldValue.serverTimestamp(),
+    });
+    t.set(logRef, {
+      ...tx,
+      reason: tx.reason ?? `Offline sync: ${tx.action}`,
+      createdAt: new Date(tx.createdAt),
+      syncedFromOffline: true,
+      appliedAt: FieldValue.serverTimestamp(),
+    });
+  });
+}
+```
+
+```ts
+// app/api/sync/inventory-transactions/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminDb } from '@/lib/firebase-admin';   // host's admin-SDK accessor
+import { applyStockTransaction, type IncomingTx } from '@/lib/sync/apply-stock-transaction';
 
 export async function POST(req: NextRequest) {
   if (req.headers.get('x-sync-secret') !== process.env.SYNC_SECRET) {
@@ -274,32 +316,7 @@ export async function POST(req: NextRequest) {
 
   for (const tx of transactions) {
     try {
-      // Transaction = idempotency check + increment + logs, atomically.
-      await db.runTransaction(async (t) => {
-        const txRef = db.collection('inventory_transactions').doc(tx.id);
-        const existing = await t.get(txRef);
-        if (existing.exists) return;   // already applied: at-least-once made harmless
-
-        const itemRef = db.collection('inventory').doc(tx.inventoryItemId);
-        t.update(itemRef, {
-          stockLevel: FieldValue.increment(tx.quantityChange),
-          updatedAt: FieldValue.serverTimestamp(),
-          serverTimestamp: FieldValue.serverTimestamp(),
-        });
-        t.set(db.collection('inventoryLogs').doc(tx.id), {
-          ...tx,
-          reason: tx.reason ?? `Offline sync: ${tx.action}`,
-          createdAt: new Date(tx.createdAt),
-          syncedFromOffline: true,
-        });
-        t.set(txRef, {
-          ...tx,
-          _synced: true,
-          syncedAt: FieldValue.serverTimestamp(),
-          serverTimestamp: FieldValue.serverTimestamp(),
-          _deleted: false,
-        });
-      });
+      await applyStockTransaction(db, tx);
       syncedIds.push(tx.id);
     } catch (err) {
       errors.push({ id: tx.id, error: err instanceof Error ? err.message : String(err) });
@@ -308,6 +325,12 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ syncedIds, errors: errors.length ? errors : undefined });
 }
 ```
+
+The route never writes the `inventory_transactions` document. Replication
+inserts it, and pushes `_synced: true` once the site folds the delta out; a
+route write there would turn that push into a conflict, and RxDB's default
+handler would copy the cloud's `_synced: true` onto the local document before
+`markSynced` runs, leaving the delta in the overlay for good.
 
 Bookings and lock-logs ingestion follow the same skeleton, simpler because a
 `doc(id).set(...)` is naturally idempotent: auth check, strip RxDB internals
@@ -321,7 +344,8 @@ ISO strings; normalize in one place if your queries sort on it.
 ## Checklist
 
 - [ ] Ingestion endpoints authenticated (shared secret at minimum)
-- [ ] Stock apply is idempotent inside a Firestore transaction
+- [ ] Stock apply is idempotent inside a Firestore transaction, keyed on the
+      log entry, never on the replicated transaction document
 - [ ] Local delta overlay resets per acknowledged ID, never wholesale
 - [ ] Flush retries while online, not only on the next reconnect
 - [ ] Delta map rebuilt from unsynced transactions on boot

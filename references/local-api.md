@@ -64,7 +64,8 @@ completed; `-1` cloud counts = currently offline.
 
 The pattern: capacity comes from replicated config, occupancy from replicated
 bookings, and the server derives open hours **from the replicated site
-document, never from constants**. (The earlier implementation hardcoded
+document, never from constants**. A day the config has no hours for is a
+closed day, not a default range. (The earlier implementation hardcoded
 10:00 to 20:00 and UTC dates; island availability silently diverged from the
 website's opening-hours-driven slots. Both fixes are folded in below.)
 
@@ -85,15 +86,20 @@ export class AvailabilityService {
     private locationId: string,
   ) {}
 
-  /** Open-hour range for a date, read from the replicated site doc. */
-  private async openHours(date: string): Promise<{ startHour: number; endHour: number }> {
+  /**
+   * Open-hour range for a date, read from the replicated site doc. No hours
+   * for the day means closed: a default range would be a locally invented
+   * business rule, and island slots would diverge from the website's.
+   */
+  private async openHours(date: string): Promise<{ startHour: number; endHour: number } | null> {
     const site = await this.db.getCollection('locations').findOne(this.locationId).exec();
     const dayName = new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const hours = site?.toJSON?.().workingHours?.[dayName] as { from?: string; to?: string } | undefined;
-    // Conservative fallback if config is missing: visible, not silent.
-    const startHour = hours?.from ? parseInt(hours.from, 10) : 10;
-    const endHour = hours?.to ? parseInt(hours.to, 10) : 20;
-    return { startHour, endHour };
+    if (!hours?.from || !hours?.to) {
+      console.warn(`No working hours for ${dayName} in site config; offering no slots`);
+      return null;
+    }
+    return { startHour: parseInt(hours.from, 10), endHour: parseInt(hours.to, 10) };
   }
 
   async getAvailableSlots(date: string, slotType: string): Promise<SlotAvailability[]> {
@@ -119,8 +125,10 @@ export class AvailabilityService {
       }
     }
 
-    // 3. Grid from config-driven hours.
-    const { startHour, endHour } = await this.openHours(date);
+    // 3. Grid from config-driven hours; no hours, no slots.
+    const hours = await this.openHours(date);
+    if (!hours) return [];
+    const { startHour, endHour } = hours;
     const result: SlotAvailability[] = [];
     for (let hour = startHour; hour < endHour; hour++) {
       const timeFrom = `${String(hour).padStart(2, '0')}:00`;
@@ -158,6 +166,7 @@ the replica is process-local, so a process-local mutex is a complete fix.
 // local-server/src/bookings.service.ts
 import { randomUUID } from 'crypto';
 import { Mutex } from 'async-mutex';
+import type { AvailabilityService } from './availability.service';
 
 const bookingMutex = new Mutex();
 
@@ -250,7 +259,7 @@ site ran out of during the outage. Use `effectiveStock` from
 ## Checklist
 
 - [ ] Every mirrored endpoint's response shape matches the cloud's
-- [ ] Availability derives hours from replicated config, not constants
+- [ ] Availability derives hours from replicated config, not constants; no hours means no slots
 - [ ] All "today"/date logic uses the site timezone, never UTC ISO slicing
 - [ ] Booking creation and stock checks serialized with mutexes
 - [ ] Offline mutations set `_offlineCreated`/`_locallyModified`

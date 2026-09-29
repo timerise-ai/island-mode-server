@@ -41,7 +41,7 @@ not dependencies.
 - `references/*.md`: seven topic files plus `provenance.md`, loaded on demand. `architecture.md` holds the
   modes, the tiers, the meta-fields and the seam contract (*Adaptation contract*), which stands in for an
   `adaptation.md`.
-- `assets/behavior.test.ts`: the vitest suite carried into the target project, **12 tests across 4
+- `assets/behavior.test.ts`: the vitest suite carried into the target project, **15 tests across 6
   describe blocks**.
 - `evals/`: `prompts.md` holds what an operator types after installing, in their words; the first prompt is
   the agent eval run before every release. Every other file there is one eval run: measured frontmatter that

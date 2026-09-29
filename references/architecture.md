@@ -36,9 +36,11 @@ Replication is document-level last-write-wins: it can copy an offline booking
 document to Firestore, but it cannot *apply* an inventory transaction; that
 requires `FieldValue.increment()` and log writes the cloud must perform
 transactionally. Hence the flush endpoints. Both paths may deliver the same
-document (they converge because everything is keyed on client-generated IDs);
-the flush endpoints are what make the overlap safe; see
-[sync-flush.md](sync-flush.md).
+document (they converge because everything is keyed on client-generated IDs).
+For stock the two paths own different documents: replication writes the
+transaction document, the flush writes the increment and the log entry, and
+that log entry is the receipt the flush checks, never the replicated document;
+see [sync-flush.md](sync-flush.md).
 
 ## Replication tiers
 

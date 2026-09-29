@@ -18,7 +18,7 @@ description: >
   the three replication tiers, the checkpoint stamp every cloud write needs,
   the per-ID stock-delta fold-out, idempotent ingestion keyed on
   client-generated IDs, the offline-gated staff token fallback, the
-  heartbeat and status chain, and a 12-test vitest suite for the trust-critical
+  heartbeat and status chain, and a 15-test vitest suite for the trust-critical
   logic. Node/NestJS local server and Firestore cloud with Next.js route
   handlers as the reference API; the HTTP framework, IdP and vocabulary are
   seams in architecture.md. Not a read cache, not multi-master sync between
@@ -91,7 +91,8 @@ the tenant field, the cloud API framework, the IdP and the hardware auth.
    gone, so the storage trade-off is decided explicitly in
    [replication.md](references/replication.md).
 4. **Cloud ingestion is idempotent.** The flush is at-least-once, so every
-   apply is keyed on the client-generated ID and skips already-applied ones.
+   apply is keyed on the client-generated ID and checks a receipt only the
+   ingestion writes, never the document replication pushes.
 5. **Bidirectional pushes carry only local changes.** The push filter sends
    documents flagged `_offlineCreated` or `_locallyModified`, so pulled cloud
    documents do not bounce back.
@@ -119,6 +120,9 @@ the tenant field, the cloud API framework, the IdP and the hardware auth.
 
 ## Quick start
 
+Copy each code block as written to the path on its first line, adapting only renames,
+imports and seams; report a template you believe is wrong in the handover, never rewrite it.
+
 1. Model collections into tiers and name the seams:
    [architecture.md](references/architecture.md).
 2. Stand up RxDB and replication with custom-token auth and security rules:
@@ -131,11 +135,14 @@ the tenant field, the cloud API framework, the IdP and the hardware auth.
    [auth.md](references/auth.md).
 6. Mirror the cloud endpoints the terminals need:
    [local-api.md](references/local-api.md).
-7. Deploy on site: systemd, nginx TLS, mDNS, monitoring:
-   [operations.md](references/operations.md).
-8. Carry [behavior.test.ts](assets/behavior.test.ts) into
-   `local-server/src/`, point its `../next/network-manager` import at
-   `lib/island/network-manager.ts`, and run it.
+7. Deploy on site: both env files (`LOCATION_ID` required, `CORS_ORIGINS`),
+   systemd, nginx TLS, mDNS: [operations.md](references/operations.md).
+8. Carry [behavior.test.ts](assets/behavior.test.ts) into `local-server/src/`,
+   point its `../next/` imports at `lib/island/` and `lib/sync/`, install
+   vitest, and run it unmodified: 15 tests.
+9. Hand over the storage loss window, the `replicationStamp()` audit of the
+   host's own writes, the mirrored secrets, and the terminal CA and CORS:
+   [operations.md](references/operations.md) (*Handover*).
 
 ## Reference directory
 
@@ -143,12 +150,12 @@ the tenant field, the cloud API framework, the IdP and the hardware auth.
 |---|---|---|
 | Topology, tiers, seams, rename table | pull-only, bidirectional, push-only, dual-path, locationId, conflict | [architecture.md](references/architecture.md) |
 | Replica setup, schemas, checkpoint trap | RxDB, replicateFirestore, serverTimestamp, custom token, storage-memory, firestore.rules | [replication.md](references/replication.md) |
-| Reconnect flush, stock deltas, ingestion | flushAll, idempotent, FieldValue.increment, localDelta, syncedIds | [sync-flush.md](references/sync-flush.md) |
+| Reconnect flush, stock deltas, ingestion | flushAll, idempotent, receipt, FieldValue.increment, localDelta, syncedIds | [sync-flush.md](references/sync-flush.md) |
 | Outage detection and API switching | heartbeat, lastHeartbeatAt, cron, NetworkManager, apiBaseUrl, failover | [network-failover.md](references/network-failover.md) |
 | Local API auth | AuthGuard, HMAC, replay window, offline JWT fallback, kiosk key | [auth.md](references/auth.md) |
 | Offline endpoints and writes | availability, mutex, offline booking, check-in, pricing stock filter | [local-api.md](references/local-api.md) |
-| On-site deployment and runbook | systemd, nginx, self-signed TLS, mDNS, avahi, journalctl, rollback | [operations.md](references/operations.md) |
+| On-site deployment, env and handover | systemd, nginx, self-signed TLS, mDNS, avahi, CORS_ORIGINS, .env.example, handover, rollback | [operations.md](references/operations.md) |
 | The ledger: what the audit changed, kept, added | provenance, audit, deviations, kept deliberately | [provenance.md](references/provenance.md) |
-| Regression cover for the trust-critical logic | vitest, verifyHmac, decodeOfflineToken, delta fold-out, rescan | [behavior.test.ts](assets/behavior.test.ts) |
+| Regression cover for the trust-critical logic | vitest, verifyHmac, decodeOfflineToken, delta fold-out, ingestion receipt, opening hours, rescan | [behavior.test.ts](assets/behavior.test.ts) |
 
 Part of the [Timerise Skills](https://github.com/timerise-ai/skills) index, which lists the sibling skills.

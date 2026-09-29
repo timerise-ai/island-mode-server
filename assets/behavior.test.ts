@@ -2,10 +2,13 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createRxDatabase, addRxPlugin } from 'rxdb';
 import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { generateHmac, verifyHmac } from './hmac.util';
 import { decodeOfflineToken } from './auth-guard';
 import { StockService } from './stock';
+import { AvailabilityService } from './availability.service';
 import { NetworkManager } from '../next/network-manager';
+import { applyStockTransaction, type IncomingTx } from '../next/apply-stock-transaction';
 
 addRxPlugin(RxDBQueryBuilderPlugin);
 
@@ -63,7 +66,7 @@ describe('StockService delta overlay', () => {
       storage: getRxStorageMemory(),
       multiInstance: false,
     });
-    await db.addCollections({
+    const collections = await db.addCollections({
       inventory: {
         schema: {
           version: 0, primaryKey: 'id', type: 'object',
@@ -95,8 +98,8 @@ describe('StockService delta overlay', () => {
         },
       },
     });
-    await db.collections.inventory.insert({ id: 'ammo-9mm', locationId: 'loc1', stockLevel: 100 });
-    const svc = new StockService(db.collections.inventory_transactions as any, db.collections.inventory as any, 'loc1');
+    await collections.inventory.insert({ id: 'ammo-9mm', locationId: 'loc1', stockLevel: 100 });
+    const svc = new StockService(collections.inventory_transactions as any, collections.inventory as any, 'loc1');
     return { db, svc };
   }
 
@@ -138,6 +141,74 @@ describe('StockService delta overlay', () => {
     await svc.markSynced([tx.id]);
     await svc.markSynced([tx.id]);              // duplicate ack must not double-fold
     expect(await svc.effectiveStock('ammo-9mm')).toBe(100);
+    await db.close();
+  });
+});
+
+describe('applyStockTransaction (cloud ingestion)', () => {
+  // Just enough of Firestore's transaction surface to see what the apply reads and writes.
+  function fakeFirestore(existing: string[]) {
+    const docs = new Set(existing);
+    const updates: Array<{ path: string; data: Record<string, unknown> }> = [];
+    const db = {
+      collection: (name: string) => ({ doc: (id: string) => ({ path: `${name}/${id}` }) }),
+      runTransaction: (fn: (t: unknown) => Promise<void>) => fn({
+        get: async (ref: { path: string }) => ({ exists: docs.has(ref.path) }),
+        update: (ref: { path: string }, data: Record<string, unknown>) => { updates.push({ path: ref.path, data }); },
+        set: (ref: { path: string }) => { docs.add(ref.path); },
+      }),
+    };
+    return { db: db as unknown as Firestore, updates };
+  }
+
+  const tx: IncomingTx = {
+    id: 'tx-1', inventoryItemId: 'ammo-9mm', locationId: 'loc1', action: 'ITEM_OUT', quantityChange: -30,
+    performedBy: 's1', performedByName: 'Staff One', createdAt: '2026-01-01T10:00:00.000Z',
+  };
+
+  it('applies the increment when push replication already wrote the transaction document', async () => {
+    const { db, updates } = fakeFirestore(['inventory_transactions/tx-1']);
+    await applyStockTransaction(db, tx);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.path).toBe('inventory/ammo-9mm');
+    expect((updates[0]!.data.stockLevel as FieldValue).isEqual(FieldValue.increment(-30))).toBe(true);
+  });
+
+  it('applies a redelivered transaction once (at-least-once safe)', async () => {
+    const { db, updates } = fakeFirestore([]);
+    await applyStockTransaction(db, tx);
+    await applyStockTransaction(db, tx);
+    expect(updates).toHaveLength(1);
+  });
+});
+
+describe('AvailabilityService hours', () => {
+  it('builds slots from the replicated site hours, and none on a day without hours', async () => {
+    const db = await createRxDatabase({
+      name: 'test-' + Math.random().toString(36).slice(2),
+      storage: getRxStorageMemory(),
+      multiInstance: false,
+    });
+    const doc = (extra: Record<string, unknown>) => ({
+      version: 0, primaryKey: 'id', type: 'object' as const,
+      properties: { id: { type: 'string', maxLength: 100 }, locationId: { type: 'string' }, ...extra },
+      required: ['id'],
+    });
+    const collections = await db.addCollections({
+      locations: { schema: doc({ workingHours: { type: 'object' } }) },
+      inventory: { schema: doc({ type: { type: 'string' }, active: { type: 'boolean' }, details: { type: 'object' } }) },
+      bookings: { schema: doc({ slotType: { type: 'string' }, status: { type: 'string' }, cart: { type: 'object' } }) },
+    });
+    // Only Monday has hours; 2026-10-05 is a Monday, 2026-10-06 a Tuesday.
+    await collections.locations.insert({ id: 'loc1', workingHours: { monday: { from: '09:00', to: '11:00' } } });
+    await collections.inventory.insert({ id: 'wall-1', locationId: 'loc1', type: 'slot', active: true, details: { slotType: 'bouldering', capacity: 4 } });
+    const svc = new AvailabilityService({ getCollection: (name: string) => (collections as Record<string, unknown>)[name] }, 'loc1');
+
+    const monday = await svc.getAvailableSlots('2026-10-05', 'bouldering');
+    expect(monday.map((slot) => slot.timeFrom)).toEqual(['09:00', '10:00']);
+    expect(monday[0]!.availableStations).toBe(4);
+    // No invented default range: the cloud owns opening hours (hard rule 4).
+    expect(await svc.getAvailableSlots('2026-10-06', 'bouldering')).toEqual([]);
     await db.close();
   });
 });

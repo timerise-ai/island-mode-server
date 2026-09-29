@@ -91,7 +91,7 @@ the skill stays cheap in context until a topic is actually needed.
 | `references/local-api.md` | The offline endpoints: availability, booking mutex, check-in, pricing |
 | `references/operations.md` | On-site deployment: systemd, nginx TLS, mDNS, env vars, runbook |
 | `references/provenance.md` | The ledger: what the audit changed, what was kept, what is new and not yet run |
-| `assets/behavior.test.ts` | The vitest suite carried into the target project as regression cover, 12 tests |
+| `assets/behavior.test.ts` | The vitest suite carried into the target project as regression cover, 15 tests |
 | `evals/` | The prompts an operator types after installing (`prompts.md`) and one file per agent eval: the skill installed into an empty Next.js app, one prompt, no help, then type-checked, built and tested |
 | `.github/workflows/agent-eval.yml` | The caller of the index's agent eval workflow, run on every published release and on a maintainer's dispatch |
 
@@ -137,12 +137,14 @@ The host supplies the other half of each seam:
 ## Verification
 
 Every TypeScript template compiles under `strict` and `--noUncheckedIndexedAccess`, Node-side against rxdb
-16.11 / firebase 12 / firebase-admin 13 / @nestjs 11, Next-side against Next 16 / React 19. The trust-critical
-logic passes [`assets/behavior.test.ts`](assets/behavior.test.ts) (12 tests: HMAC accept/tamper/replay,
-offline-token expiry, delta fold-out on a real RxDB memory instance including partial and duplicate acks,
-failover threshold and offline rescan). Carry that file into `local-server/src/` as regression cover, with
-its `../next/network-manager` import pointed at `lib/island/network-manager.ts`. It cannot run in this
-repository: it imports templates that exist only once they have been copied into a host project.
+16.11 / firebase 11.10 / firebase-admin 13 / @nestjs 11, Next-side against Next 16 / React 19. The
+trust-critical logic passes [`assets/behavior.test.ts`](assets/behavior.test.ts) (15 tests: HMAC
+accept/tamper/replay, offline-token expiry, delta fold-out on a real RxDB memory instance including partial
+and duplicate acks, the stock ingestion receipt against a replicated transaction document and a redelivery,
+config-driven opening hours, failover threshold and offline rescan). Carry that file into `local-server/src/`
+as regression cover, with its `../next/` imports pointed at `lib/island/network-manager.ts` and
+`lib/sync/apply-stock-transaction.ts`. It cannot run in this repository: it imports templates that exist only
+once they have been copied into a host project.
 
 Not verified by execution, and marked as such: the Firestore rules, the replication plugin against a live
 Firestore, and the nginx/systemd/avahi configs, which were reviewed against the earlier deployment only.

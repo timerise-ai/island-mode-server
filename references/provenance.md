@@ -29,9 +29,11 @@ verification unenforceable. Expiry was never checked.
 The ingestion route applied `FieldValue.increment()` per transaction with no
 already-applied check; a retried flush (lost ack, crash between apply and
 mark-synced) double-decremented stock and duplicated logs.
-**Shipped:** Firestore transaction doing existence-check + increment + log
-atomically, keyed on the client-generated transaction ID
-([sync-flush.md](sync-flush.md)).
+**Shipped:** Firestore transaction doing receipt check + increment + log
+atomically, keyed on the client-generated transaction ID. The receipt is the
+`inventoryLogs` entry only the ingestion writes, not the
+`inventory_transactions` document push replication also writes
+([sync-flush.md](sync-flush.md)); see *Added*.
 
 ### 4. Wholesale delta reset after a possibly-failed flush
 `flushAll` cleared the entire local stock-delta map after flushing, but the
@@ -58,8 +60,9 @@ never found until the cloud recovered and failed again.
 Slot generation hardcoded 10:00 to 20:00 and derived "today" from UTC ISO
 strings, diverging from the cloud's opening-hours-driven availability (and
 shifting the day boundary for non-UTC sites).
-**Shipped:** hours derived from the replicated site document; site-timezone
-`todayAtSite()` helper ([local-api.md](local-api.md)).
+**Shipped:** hours derived from the replicated site document, a day without
+hours offering no slots; site-timezone `todayAtSite()` helper
+([local-api.md](local-api.md)).
 
 ### 8. Undeclared and dead meta-fields
 `_locallyModified` was patched but absent from every RxDB schema (worked only
@@ -110,6 +113,22 @@ erroring long after it had healed.
   as implemented here.
 - Replication **error clearing via `active$`** (fix 10).
 - `todayAtSite()` timezone helper and config-driven `openHours()` (fix 7).
+- Found by the 0.1.6 agent eval, where two agents independently patched the
+  same template, and fixed in 0.1.7:
+  - The stock ingestion receipt (fix 3). 0.1.6 checked the
+    `inventory_transactions` document, which the push-only replication writes,
+    usually before the flush arrives; the increment was skipped while the site
+    folded its delta out, so cloud stock never moved (reproduced in the suite).
+    The apply moved to `applyStockTransaction()` so the suite can cover it.
+  - Push-only rules granting `read` (the rxdb 16.11 push handler reads before
+    writing, checked in its source), the `lock_logs` rule name matching the
+    collection, and a `pricing` rule, which 0.1.6 lacked.
+  - No default opening hours (fix 7): 0.1.6 fell back to 10:00 to 20:00, a
+    locally invented rule.
+  - `CORS_ORIGINS` and the cloud env list ([operations.md](operations.md)):
+    without CORS headers a browser rejects every failover ping to the box
+    (the Fetch standard's CORS check, per MDN). The status cron fails closed
+    when `CRON_SECRET` is unset, like the sync endpoints.
 - Delta-map **rebuild-on-boot** guidance ([sync-flush.md](sync-flush.md)).
 - The JSONL journaling option for offline writes (listed as an option only).
 - Per-site custom-token scoping suggestion in the rules section.
@@ -122,12 +141,14 @@ erroring long after it had healed.
 ## Verification status
 
 Every TypeScript template compiles under `strict` and
-`--noUncheckedIndexedAccess` (Node-side against rxdb 16.11 / firebase 12 /
-firebase-admin 13 / @nestjs 11; Next-side against Next 16 / React 19). The
-trust-critical logic passes the behavioural suite in
-`assets/behavior.test.ts` (12 tests: HMAC accept/tamper/replay, offline-token
+`--noUncheckedIndexedAccess` (Node-side against rxdb 16.11 / firebase 11.10 /
+firebase-admin 13 / @nestjs 11; Next-side against Next 16 / React 19), the
+suite included. The trust-critical logic passes the behavioural suite in
+`assets/behavior.test.ts` (15 tests: HMAC accept/tamper/replay, offline-token
 expiry, delta fold-out on a real RxDB memory instance including partial-ack
-and duplicate-ack, failover threshold + offline rescan). Not verified by
+and duplicate-ack, the ingestion receipt against a replicated transaction
+document and a redelivery, config-driven opening hours, failover threshold +
+offline rescan). Not verified by
 execution: Firestore rules, the replication plugin against a live Firestore,
 nginx/systemd/avahi configs, reviewed against the earlier deployment only.
 

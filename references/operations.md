@@ -24,7 +24,31 @@ SYNC_SECRET=<same value as cloud env>      # ingestion endpoints (sync-flush.md)
 TERMINAL_SECRET=<hardware HMAC secret>
 LOCK_ACCESS_TOKEN=<same as cloud env>
 KIOSK_API_KEY=<same as cloud env, or empty for open kiosk>
+CORS_ORIGINS=https://<your-cloud-app>      # terminal PWA origins, comma-separated
 ```
+
+```bash
+# .env: cloud app (the mirrored values are the same as the local server's)
+SYNC_SECRET=
+LOCK_ACCESS_TOKEN=
+KIOSK_API_KEY=
+CRON_SECRET=                               # unset = the status cron answers 401
+NEXT_PUBLIC_LOCAL_SERVER_URL=https://island.local
+```
+
+Commit both as `.env.example` files with every name listed and every secret
+empty. `LOCATION_ID` is required: the server refuses to start without it and
+never falls back to a default ID, since a wrong ID replicates and serves
+another site's data. The four secrets are never defaulted either.
+
+`CORS_ORIGINS` is not optional. Terminals are served from the cloud origin and
+call the box cross-origin, and a browser rejects a cross-origin `fetch` whose
+response lacks `Access-Control-Allow-Origin`, even a simple `GET`. Without it
+every `/health` ping from the `NetworkManager` fails and terminals never fail
+over. In the NestJS bootstrap:
+`app.enableCors({ origin: process.env.CORS_ORIGINS!.split(',').map((o) => o.trim()) })`.
+The outage drill below is where you confirm the terminal browser actually
+reaches the box from the cloud origin.
 
 The service-account JSON is a full-privilege cloud credential sitting on a box
 in the field: `chmod 600`, owned by the service user, and **never in the git
@@ -184,8 +208,28 @@ simultaneous cloud outage would be noticed. Rollback = `git checkout $(cat
 | Stock looks wrong after reconnect | duplicate apply or wholesale delta reset | verify ingestion idempotency ([sync-flush.md](sync-flush.md)) |
 | High memory | large replica in memory storage | expected; add swap below 1 GB RAM |
 
+## Handover
+
+Whoever builds the module tells the operator four things, in the final
+summary and in the runbook, because none of them is visible in the code that
+was written:
+
+1. **The storage decision and its loss window.** With memory storage, a
+   restart during an outage loses every offline booking and stock movement
+   ([replication.md](replication.md)).
+2. **The cloud-write stamp on the host's own write paths.** Every existing
+   write to a replicated collection (creates, updates, webhooks, admin edits,
+   seeds) must merge `replicationStamp()`; the module cannot do it for them,
+   and an unstamped document never reaches the site.
+3. **The mirrored secrets.** `SYNC_SECRET`, `LOCK_ACCESS_TOKEN` and
+   `KIOSK_API_KEY` hold the same value on the cloud and on every local server.
+4. **The terminal side.** The CA certificate on every terminal, and the
+   terminal origins in `CORS_ORIGINS`.
+
 ## Checklist
 
+- [ ] Both `.env.example` files list every name, secrets empty; `LOCATION_ID` required
+- [ ] `CORS_ORIGINS` holds the terminal origins; a terminal reaches `/health` from the cloud origin
 - [ ] systemd unit enabled; survives reboot
 - [ ] Service-account key 600, outside the repo
 - [ ] TLS cert has SANs for name AND static IP; CA installed on every terminal

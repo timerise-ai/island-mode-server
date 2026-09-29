@@ -112,7 +112,7 @@ site doc (`onSnapshot`) and disable the flow when `status === 'offline'`;
 that is what prevents cloud/island double-booking.
 
 ```ts
-// app/api/cron/server-status/route.ts (protect with your cron secret)
+// app/api/cron/server-status/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -120,8 +120,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 const STALE_THRESHOLD_MS = 5 * 60_000;   // >= cron cadence, or sites flap
 
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
+  const cronSecret = process.env.CRON_SECRET;   // unset = closed, like the sync endpoints
+  if (!cronSecret || request.headers.get('authorization') !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const db = getAdminDb();
@@ -310,7 +310,14 @@ code's point of view:
 
 ```ts
 // lib/island/api-fetch.ts
-const fullUrl = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+import { getNetworkManager } from './network-manager';
+
+/** The only way terminal code calls the API: '' = cloud (same-origin), else the local server. */
+export function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const { apiBaseUrl } = getNetworkManager().getState();
+  const fullUrl = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+  return fetch(fullUrl, init);
+}
 ```
 
 Surface `isOffline` in the terminal UI (banner or indicator) using the host's
