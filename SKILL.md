@@ -120,8 +120,8 @@ the tenant field, the cloud API framework, the IdP and the hardware auth.
 
 ## Quick start
 
-Copy each code block as written to the path on its first line, adapting only renames,
-imports and seams; report a template you believe is wrong in the handover, never rewrite it.
+Copy each code block as written to the path on its first line; renames, imports and seams are the only edits.
+Variants and extra hardening go in new files around a template; a suspected defect goes in the handover.
 
 1. Model collections into tiers and name the seams:
    [architecture.md](references/architecture.md).

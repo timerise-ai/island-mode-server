@@ -15,14 +15,22 @@ Dependencies (local server `package.json`):
     "@nestjs/core": "^11.0.0",
     "@nestjs/platform-express": "^11.0.0",
     "async-mutex": "^0.5.0",
-    "firebase": "11.10.0",
+    "firebase": "11.6.0",
     "firebase-admin": "^13.6.1",
     "reflect-metadata": "^0.2.2",
-    "rxdb": "^16.11.0",
+    "rxdb": "16.11.0",
     "rxjs": "^7.8.1"
   }
 }
 ```
+
+Pin both exactly. rxdb depends on one exact `firebase` version (11.6.0 for
+16.11.0; `npm view rxdb@<version> dependencies.firebase` for another), and
+the client `firebase` must be that version: any other installs a second copy
+under rxdb, and the plugin's copy then throws on the host's Firestore
+instance ("Did you pass a reference from a different Firestore SDK?"), so
+every push fails. It type-checks either way; `npm ls firebase` showing one
+copy is the check.
 
 Both Firebase SDKs are required: **admin** to mint a custom token and verify
 staff ID tokens; **client** because the replication plugin drives the client
@@ -411,6 +419,7 @@ to weigh persistent storage).
 
 ## Checklist
 
+- [ ] `npm ls firebase` shows one copy, the version rxdb depends on
 - [ ] Every collection assigned a tier; filters match the tier
 - [ ] Cloud writes audited: all stamp `serverTimestamp` + `_deleted`
 - [ ] Deletes are soft everywhere the site replicates

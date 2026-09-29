@@ -138,7 +138,7 @@ erroring long after it had healed.
   - `ignoreUndefinedProperties` on the replica's Firestore client. RxDB keeps
     optional fields as `undefined` keys and the client SDK rejects `undefined`
     in a batched write, so pushing a stock transaction without a `reason`
-    threw (probe against firebase 11.10).
+    threw (probe against firebase 11.6).
   - The bookings ingestion stores `_offlineCreated: false` and
     `_locallyModified: false`; stored with the site's flags, the copy was pulled
     back and the retry timer resent the booking every minute.
@@ -155,6 +155,12 @@ erroring long after it had healed.
     credential (firebase-admin 13 source).
   - The `GUARD_DEPS` provider token on `AuthGuard`: NestJS cannot inject an
     interface by type (resolved by a NestJS 11 application context).
+- Found by the 0.1.9 agent eval and fixed in 0.1.10: `firebase` pinned to
+  11.6.0 and rxdb to exactly 16.11.0. rxdb depends on exactly 11.6.0, so the
+  earlier pin of 11.10.0 installed a second copy, and the plugin's `writeBatch`,
+  `doc` and `waitForPendingWrites` threw on the host's Firestore instance
+  (probe); the templates type-check against both copies, so only
+  `npm ls firebase` shows it.
 - Delta-map **rebuild on boot**, as `StockService.rebuildDeltas()` since 0.1.8
   ([sync-flush.md](sync-flush.md)).
 - The JSONL journaling option for offline writes (listed as an option only).
@@ -168,7 +174,7 @@ erroring long after it had healed.
 ## Verification status
 
 Every TypeScript template compiles under `strict` and
-`--noUncheckedIndexedAccess` (Node-side against rxdb 16.11 / firebase 11.10 /
+`--noUncheckedIndexedAccess` (Node-side against rxdb 16.11 / firebase 11.6 /
 firebase-admin 13 / @nestjs 11; Next-side against Next 16 / React 19), the
 suite included. The trust-critical logic passes the behavioural suite in
 `assets/behavior.test.ts` (17 tests: HMAC accept/tamper/replay, offline-token

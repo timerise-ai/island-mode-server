@@ -137,7 +137,7 @@ The host supplies the other half of each seam:
 ## Verification
 
 Every TypeScript template compiles under `strict` and `--noUncheckedIndexedAccess`, Node-side against rxdb
-16.11 / firebase 11.10 / firebase-admin 13 / @nestjs 11, Next-side against Next 16 / React 19. The
+16.11 / firebase 11.6 / firebase-admin 13 / @nestjs 11, Next-side against Next 16 / React 19. The
 trust-critical logic passes [`assets/behavior.test.ts`](assets/behavior.test.ts) (17 tests: HMAC
 accept/tamper/replay, offline-token expiry, delta fold-out on a real RxDB memory instance including partial
 and duplicate acks and a rebuild after restart, the stock ingestion receipt against a replicated transaction
