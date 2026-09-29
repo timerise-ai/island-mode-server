@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-09-29
+
+Fix release, from scoring the prompt-1 agent eval runs against 0.1.7.
+
+### Fixed
+
+- The `locations` pull filters by document ID. 0.1.7 passed `pull: {}`, which makes
+  the plugin query the whole collection, so every local server replicated every
+  site's configuration. Apps built from earlier versions should copy in the new
+  `startAll()` in `replication.service.ts`.
+- The replica's Firestore client sets `ignoreUndefinedProperties`: RxDB keeps
+  optional fields as `undefined` keys, which the client SDK rejects in a write, so a
+  stock transaction without a `reason` never pushed. Copy in the new
+  `firebase-client.ts`.
+- The bookings ingestion stores `_offlineCreated: false` and `_locallyModified:
+  false`. Stored with the site's flags, the booking was pulled back and resent every
+  minute.
+
+### Added
+
+- `StockService.rebuildDeltas()`, called once at boot, and `StockService.adjust()`.
+- A test for the rebuild after a restart: 16 tests in 6 describe blocks.
+
+### Changed
+
+- `references/operations.md`: `GOOGLE_APPLICATION_CREDENTIALS`,
+  `NEXT_PUBLIC_LOCAL_SERVER_URL` and the `HEARTBEAT_*` pair are kept by name in both
+  `.env.example` files, with the reason for each.
+- The rename table in `references/architecture.md` names the booking's `ammunition`
+  add-ons.
+
 ## [0.1.7] - 2026-09-29
 
 Fix release, from scoring the prompt-1 agent eval runs against 0.1.6.
