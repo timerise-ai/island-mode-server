@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-09-29
+
+Fix release, from scoring the prompt-1 agent eval runs against 0.1.9.
+
+### Fixed
+
+- `local-server/package.json` pins `rxdb` to exactly 16.11.0 and `firebase` to 11.6.0,
+  the exact version that rxdb release depends on. The earlier `firebase` pin, 11.10.0,
+  installed a second copy under rxdb, and the replication plugin's copy threw on the
+  host's Firestore instance, so no push succeeded. Apps built from earlier versions
+  should align the pin and check that `npm ls firebase` shows one copy.
+
+### Changed
+
+- `SKILL.md`: documented variants (persistent storage, per-site tokens) and extra
+  hardening go in new files around a template, never inside one.
+- `references/replication.md` explains the pin and names `npm ls firebase` as the check;
+  the stated firebase version is 11.6.
+
 ## [0.1.9] - 2026-09-29
 
 Fix release, from scoring the prompt-1 agent eval runs against 0.1.8.
