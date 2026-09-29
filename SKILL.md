@@ -1,46 +1,58 @@
 ---
 name: island-mode-server
 description: >
-  Build an on-premise fallback server that keeps a live two-way replica of
-  remote Firestore data (RxDB replication) and takes over serving LAN clients
-  when the cloud is unreachable, then flushes offline work back on reconnect.
-  Use when: (1) a physical site (store, gym, clinic, warehouse) must keep
-  operating through internet outages, (2) the user mentions: "local server with
-  two-way sync to Firestore", "island mode", "offline fallback server", "LAN
-  failover", "on-prem replica", "site keeps working when internet is down",
-  (3) PWA/kiosk terminals need to switch between a cloud API and a local API
-  automatically. Covers replication tiers, reconnect flush, idempotent
-  ingestion, heartbeat/status chain, client failover, HMAC hardware auth, and
-  on-site ops. Node/NestJS local server + Firestore cloud; cloud API
-  framework-agnostic.
+  Build an on-premise fallback server that keeps a live two-way RxDB replica of
+  a site's slice of Firestore, takes over serving LAN terminals when the cloud
+  is unreachable, and flushes offline work back on reconnect. Use when: (1) a
+  physical site (store, gym, clinic, warehouse) must keep taking bookings,
+  moving stock and toggling hardware through an internet outage, (2) kiosk or
+  staff PWAs must switch between a cloud API and a local API on their own,
+  (3) an existing offline server needs auditing: a reconnect flush that
+  double-counts stock, a replica that stops pulling, a failover that never
+  finds the box, (4) the user mentions: island mode, offline fallback server, LAN
+  failover, on-prem replica, local server with two-way sync to Firestore,
+  "the site keeps working when the internet is down", replicateFirestore,
+  rxdb/plugins/replication-firestore, serverTimestamp checkpoint,
+  _offlineCreated, _locallyModified, syncedIds, FieldValue.increment,
+  heartbeat cron, apiBaseUrl, HMAC device auth, island.local, avahi. Carries
+  the three replication tiers, the checkpoint stamp every cloud write needs,
+  the per-ID stock-delta fold-out, idempotent ingestion keyed on
+  client-generated IDs, the offline-gated staff token fallback, the
+  heartbeat and status chain, and a 12-test vitest suite for the trust-critical
+  logic. Node/NestJS local server and Firestore cloud with Next.js route
+  handlers as the reference API; the HTTP framework, IdP and vocabulary are
+  seams in architecture.md. Not a read cache, not multi-master sync between
+  sites, and not for a cloud database other than Firestore.
 ---
 
 # Island-Mode Server
 
 A small Node server runs at the physical site holding a live RxDB replica of
 the site's slice of Firestore. While the internet is up it is invisible; when
-the internet drops, kiosk/staff terminals on the LAN fail over to it and the
-site keeps taking orders, moving stock, and toggling hardware. On reconnect,
-offline work flushes back to the cloud. The one insight that shapes everything:
-**sync is two systems, not one** — document-level RxDB replication for state,
-plus an HTTP flush of business events the cloud must apply with its own logic
-(stock increments, audit ingestion). Neither alone is sufficient.
+the internet drops, kiosk and staff terminals on the LAN fail over to it and
+the site keeps taking orders, moving stock and toggling hardware. On
+reconnect, offline work flushes back to the cloud. The one idea the design
+turns on: **sync is two systems, not one**. Document-level RxDB replication
+keeps state current, and an HTTP flush of business events lets the cloud
+apply them with its own logic (stock increments, audit ingestion). Neither
+alone is sufficient.
 
 ## When to use
 
 - A site must survive internet outages with real writes (bookings, stock,
   hardware control), not just cached reads.
-- Terminals are browser-based (PWA/kiosk) and must fail over transparently.
+- Terminals are browser-based (PWA or kiosk) and must fail over transparently.
 - Firestore is the cloud source of truth and stays that way.
 
 ## When NOT to use
 
-- Pure read caching or a PWA that only needs Firestore's built-in offline
-  persistence — the Firebase SDK already does that; no server needed.
-- A different cloud database (Supabase/Postgres): the replication tier concept
-  travels, but every template here is Firestore-specific.
-- Multi-master sync between peer sites — this design is strictly hub-and-spoke
-  with the cloud as source of truth and last-write-wins conflicts.
+- Pure read caching, or a PWA that only needs Firestore's built-in offline
+  persistence: the Firebase SDK already does that, with no server.
+- A different cloud database (Supabase, Postgres): the replication tier
+  concept travels, but every template here is Firestore-specific.
+- Multi-master sync between peer sites: this design is strictly
+  hub-and-spoke, with the cloud as source of truth and last-write-wins
+  conflicts.
 
 ## Architecture
 
@@ -57,31 +69,35 @@ plus an HTTP flush of business events the cloud must apply with its own logic
       | Local server    |  Node/NestJS + RxDB, LAN :443 via nginx TLS
       +--------+--------+
                |
-     LAN — kiosk PWA, staff PWA, hardware controllers
+     LAN: kiosk PWA, staff PWA, hardware controllers
 ```
+
+The seam contract with the host lives in
+[architecture.md](references/architecture.md) (*Adaptation contract*): the
+rename table from `location / booking / inventory / lock / staff / pricing`,
+the tenant field, the cloud API framework, the IdP and the hardware auth.
 
 ## Critical facts
 
-1. **Every cloud write to a replicated collection MUST stamp the checkpoint
-   field** (`serverTimestamp: FieldValue.serverTimestamp()`) and `_deleted:
-   false` — the RxDB Firestore plugin pulls by `serverTimestamp > checkpoint`;
-   an unstamped document is never pulled by replication.
-2. **Three replication tiers, chosen per collection**: pull-only (config the
-   site consumes), bidirectional (operational state the site mutates), push-only
-   (logs the site produces). Getting a collection's tier wrong is the main
-   design error.
-3. **In-memory RxDB storage means an offline restart loses all offline work.**
+1. **Every cloud write to a replicated collection stamps the checkpoint
+   field and `_deleted: false`.** The RxDB Firestore plugin pulls by
+   `serverTimestamp > checkpoint`, so an unstamped document is never pulled.
+2. **Each collection gets one of three replication tiers.** Pull-only for
+   config the site consumes, bidirectional for operational state the site
+   mutates, push-only for logs the site produces; the wrong tier for a
+   collection is the main design error.
+3. **In-memory RxDB storage loses all offline work on an offline restart.**
    The replica repopulates from Firestore, but offline-created documents are
-   gone. Decide the storage trade-off explicitly — see
+   gone, so the storage trade-off is decided explicitly in
    [replication.md](references/replication.md).
-4. **The flush is at-least-once, so cloud ingestion must be idempotent** — key
-   every apply on the client-generated ID and skip already-applied ones.
-5. **Push filters prevent echo**: bidirectional pushes only documents flagged
-   `_offlineCreated` / `_locallyModified`, so pulled cloud docs don't bounce
-   back.
-6. **Terminals prefer cloud** — failover engages only after N consecutive
-   health failures, and while offline they must keep rescanning for the local
-   server, not just once at the transition.
+4. **Cloud ingestion is idempotent.** The flush is at-least-once, so every
+   apply is keyed on the client-generated ID and skips already-applied ones.
+5. **Bidirectional pushes carry only local changes.** The push filter sends
+   documents flagged `_offlineCreated` or `_locallyModified`, so pulled cloud
+   documents do not bounce back.
+6. **Terminals prefer the cloud.** Failover engages only after N consecutive
+   health failures, and while offline they keep rescanning for the local
+   server on every tick, not once at the transition.
 
 ## Hard rules
 
@@ -94,7 +110,7 @@ plus an HTTP flush of business events the cloud must apply with its own logic
 > of signature verification.
 
 > **Never reset local stock deltas for transactions that have not confirmed as
-> synced.** Reset per-ID on acknowledgment, or offline sales double-count or
+> synced.** Reset per ID on acknowledgment, or offline sales double-count or
 > vanish from availability.
 
 > **Never let the local server invent business rules the cloud owns** (opening
@@ -103,20 +119,23 @@ plus an HTTP flush of business events the cloud must apply with its own logic
 
 ## Quick start
 
-1. Model collections into tiers and name the seams —
+1. Model collections into tiers and name the seams:
    [architecture.md](references/architecture.md).
-2. Stand up RxDB + replication with custom-token auth and security rules —
+2. Stand up RxDB and replication with custom-token auth and security rules:
    [replication.md](references/replication.md).
-3. Add the reconnect flush and idempotent cloud ingestion —
+3. Add the reconnect flush and idempotent cloud ingestion:
    [sync-flush.md](references/sync-flush.md).
-4. Wire the heartbeat/status chain and client failover —
+4. Wire the heartbeat and status chain and client failover:
    [network-failover.md](references/network-failover.md).
-5. Guard the local API (staff / kiosk / hardware HMAC / static token) —
+5. Guard the local API (staff, kiosk, hardware HMAC, static token):
    [auth.md](references/auth.md).
-6. Mirror the cloud endpoints the terminals need —
+6. Mirror the cloud endpoints the terminals need:
    [local-api.md](references/local-api.md).
-7. Deploy on-site: systemd, nginx TLS, mDNS, monitoring —
+7. Deploy on site: systemd, nginx TLS, mDNS, monitoring:
    [operations.md](references/operations.md).
+8. Carry [behavior.test.ts](assets/behavior.test.ts) into
+   `local-server/src/`, point its `../next/network-manager` import at
+   `lib/island/network-manager.ts`, and run it.
 
 ## Reference directory
 
@@ -130,10 +149,6 @@ plus an HTTP flush of business events the cloud must apply with its own logic
 | Offline endpoints and writes | availability, mutex, offline booking, check-in, pricing stock filter | [local-api.md](references/local-api.md) |
 | On-site deployment and runbook | systemd, nginx, self-signed TLS, mDNS, avahi, journalctl, rollback | [operations.md](references/operations.md) |
 | The ledger: what the audit changed, kept, added | provenance, audit, deviations, kept deliberately | [provenance.md](references/provenance.md) |
-
-Passing vitest suite for the trust-critical logic (HMAC verify, offline token
-decode, delta fold-out on real RxDB, failover rescan):
-[assets/behavior.test.ts](assets/behavior.test.ts) — carry it into the target
-project as regression cover.
+| Regression cover for the trust-critical logic | vitest, verifyHmac, decodeOfflineToken, delta fold-out, rescan | [behavior.test.ts](assets/behavior.test.ts) |
 
 Part of the [Timerise Skills](https://github.com/timerise-ai/skills) index, which lists the sibling skills.

@@ -10,11 +10,9 @@ An [Agent Skill](https://agentskills.io) that teaches an agent to build an **on-
 Node box at a physical site holding a live two-way replica of that site's slice of Firestore, which takes over
 serving LAN terminals when the internet drops and flushes offline work back on reconnect. The local server is
 Node/NestJS + RxDB; the cloud is Firestore with Next.js route handlers as the reference API, both stated as
-substitutable.
-
-While the internet is up the box is invisible: it replicates in the background and heartbeats so the cloud
-knows it is alive. When the cloud stops answering, kiosk and staff PWAs on the LAN switch their API base URL
-to it and the site keeps taking bookings, moving stock and toggling hardware from the replica.
+substitutable. While the internet is up the box is invisible: it replicates in the background and heartbeats
+so the cloud knows it is alive. When the cloud stops answering, kiosk and staff PWAs on the LAN switch their
+API base URL to it and the site keeps taking bookings, moving stock and toggling hardware from the replica.
 
 The insight that shapes the whole skill: **sync is two systems, not one.** Document-level RxDB replication
 keeps state current but cannot run the cloud's business logic; an HTTP flush of business events on reconnect
@@ -59,7 +57,7 @@ ln -s ~/.claude/skills/island-mode-server ~/.agents/skills/island-mode-server
 ```
 
 Update the skill with `git pull` in its directory. The current release is **0.1.5**. See
-[`CHANGELOG.md`](CHANGELOG.md). The [skills index](https://github.com/timerise-ai/skills) lists the other
+[CHANGELOG.md](CHANGELOG.md). The [skills index](https://github.com/timerise-ai/skills) lists the other
 Timerise Skills and how to install them all at once.
 
 ## Activation
@@ -81,6 +79,10 @@ the skill stays cheap in context until a topic is actually needed.
 | File | Contents |
 |---|---|
 | `SKILL.md` | Entry point: the architecture diagram, six critical facts, four hard rules, the quick start, and the reference directory |
+| `README.md` | This front door |
+| `CHANGELOG.md` | Keep a Changelog, one section per release, newest first |
+| `CLAUDE.md` | What this repository is and the conventions for editing the skill itself |
+| `LICENSE` | MIT |
 | `references/architecture.md` | Modes, the two sync paths, replication tiers, tenant scope, the seams table |
 | `references/replication.md` | RxDB setup, schemas, custom-token auth, security rules, the checkpoint trap |
 | `references/sync-flush.md` | Reconnect flush, per-ID stock deltas, idempotent cloud ingestion, retries |
@@ -89,7 +91,9 @@ the skill stays cheap in context until a topic is actually needed.
 | `references/local-api.md` | The offline endpoints: availability, booking mutex, check-in, pricing |
 | `references/operations.md` | On-site deployment: systemd, nginx TLS, mDNS, env vars, runbook |
 | `references/provenance.md` | The ledger: what the audit changed, what was kept, what is new and not yet run |
-| `assets/behavior.test.ts` | The vitest suite carried into the target project as regression cover |
+| `assets/behavior.test.ts` | The vitest suite carried into the target project as regression cover, 12 tests |
+| `evals/` | The prompts an operator types after installing (`prompts.md`) and one file per agent eval: the skill installed into an empty Next.js app, one prompt, no help, then type-checked, built and tested |
+| `.github/workflows/agent-eval.yml` | The caller of the index's agent eval workflow, run on every published release and on a maintainer's dispatch |
 
 The skill is server-side and infrastructure-side only; the local server has no UI at all, and its operator
 surface is `/health`, `/status` and journald. It assumes Firestore is the cloud source of truth and stays that
@@ -130,6 +134,19 @@ The host supplies the other half of each seam:
 | UI status surface | State shape only (`mode`, `apiBaseUrl`) | Its own banner/indicator components |
 | Strings | English literals, keys suggested | Its i18n system |
 
+## Verification
+
+Every TypeScript template compiles under `strict` and `--noUncheckedIndexedAccess`, Node-side against rxdb
+16.11 / firebase 12 / firebase-admin 13 / @nestjs 11, Next-side against Next 16 / React 19. The trust-critical
+logic passes [`assets/behavior.test.ts`](assets/behavior.test.ts) (12 tests: HMAC accept/tamper/replay,
+offline-token expiry, delta fold-out on a real RxDB memory instance including partial and duplicate acks,
+failover threshold and offline rescan). Carry that file into `local-server/src/` as regression cover, with
+its `../next/network-manager` import pointed at `lib/island/network-manager.ts`. It cannot run in this
+repository: it imports templates that exist only once they have been copied into a host project.
+
+Not verified by execution, and marked as such: the Firestore rules, the replication plugin against a live
+Firestore, and the nginx/systemd/avahi configs, which were reviewed against the earlier deployment only.
+
 ## Not this
 
 | Not this | Use instead |
@@ -138,18 +155,6 @@ The host supplies the other half of each seam:
 | Supabase, Postgres or another cloud database | The tier concept travels; every template here is Firestore-specific |
 | Multi-master sync between peer sites | This design is strictly hub-and-spoke, cloud as source of truth |
 | The kiosk terminal itself | The sibling [`booking-kiosk`](https://github.com/timerise-ai/booking-kiosk) skill, which defines the client-side failover contract against this server |
-
-## Verification
-
-Every TypeScript template compiles under `strict` and `--noUncheckedIndexedAccess`, Node-side against rxdb
-16.11 / firebase 12 / firebase-admin 13 / @nestjs 11, Next-side against Next 16 / React 19. The trust-critical
-logic passes [`assets/behavior.test.ts`](assets/behavior.test.ts) (12 tests: HMAC accept/tamper/replay,
-offline-token expiry, delta fold-out on a real RxDB memory instance including partial and duplicate acks,
-failover threshold and offline rescan). Carry that file into the target project as regression cover. It cannot
-run in this repository: it imports templates that exist only once they have been copied into a host project.
-
-Not verified by execution, and marked as such: the Firestore rules, the replication plugin against a live
-Firestore, and the nginx/systemd/avahi configs, which were reviewed against the earlier deployment only.
 
 ## Contributing
 
@@ -163,6 +168,7 @@ the templates is there for a reason, and `references/provenance.md` is the ledge
 read it before simplifying anything, and add an entry for anything you change. Commits follow Conventional
 Commits and releases follow [STANDARD.md](https://github.com/timerise-ai/skills/blob/main/STANDARD.md) in the
 index; `CLAUDE.md` carries the full editing conventions.
+
 ## Part of the Timerise Skills
 
 This is one of the [Timerise Skills](https://github.com/timerise-ai/skills): modules written by our own senior

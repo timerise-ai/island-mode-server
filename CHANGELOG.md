@@ -63,7 +63,7 @@ unchanged from 0.1.0.
 ### Changed
 - README: the skill's origin is reworded. It was written by the engineers who built the
   module it describes; the reference point for `provenance.md` is the earlier
-  implementation rather than "the source"; the index is called Timerise Skills.
+  implementation rather than the older wording; the index is called Timerise Skills.
 - README: every em-dash, arrow and en-dash in the prose is rewritten as a comma, colon,
   full stop or conjunction.
 
@@ -77,30 +77,30 @@ terminals and HMAC-authenticated lock hardware.
 - `SKILL.md` entry point: the frontmatter trigger, when to use and when not to,
   the architecture diagram, six critical facts, four hard rules, a seven-step
   quick start, and the reference directory table.
-- `references/architecture.md` — modes (online / island / reconnect), why both
+- `references/architecture.md`: modes (online / island / reconnect), why both
   sync paths exist, the three replication tiers, one-site tenant scope, the
   last-write-wins conflict policy, ID conventions, the meta-field table, and the
   adaptation contract that bounds what a host must supply.
-- `references/replication.md` — RxDB setup, per-tier schemas and filters,
+- `references/replication.md`: RxDB setup, per-tier schemas and filters,
   custom-token auth, Firestore security rules, the storage trade-off, and the
   `serverTimestamp` checkpoint trap.
-- `references/sync-flush.md` — the reconnect flush, per-ID stock deltas,
+- `references/sync-flush.md`: the reconnect flush, per-ID stock deltas,
   idempotent cloud ingestion keyed on client-generated IDs, and the retry timer.
-- `references/network-failover.md` — heartbeat and cron status chain, outage
+- `references/network-failover.md`: heartbeat and cron status chain, outage
   detection thresholds, terminal API switching, and the offline rescan.
-- `references/auth.md` — local API guards for staff tokens, the kiosk key, and
+- `references/auth.md`: local API guards for staff tokens, the kiosk key, and
   HMAC-SHA256 hardware auth with a replay window, plus the offline-gated token
   fallback.
-- `references/local-api.md` — the cloud endpoints the terminals need mirrored:
+- `references/local-api.md`: the cloud endpoints the terminals need mirrored:
   availability from replicated opening hours, the booking mutex, check-in, and
   the pricing stock filter.
-- `references/operations.md` — on-site deployment (systemd, nginx TLS, mDNS),
+- `references/operations.md`: on-site deployment (systemd, nginx TLS, mDNS),
   the canonical env var list, monitoring and the rollback runbook.
-- `references/provenance.md` — the audit ledger: ten source defects fixed in the
+- `references/provenance.md`: the audit ledger: ten defects of the earlier implementation fixed in the
   templates, six choices kept deliberately with the reason each is safe, what
   was designed here but never run in production, the verification status, and a
   fix order for anyone porting the original instead.
-- `assets/behavior.test.ts` — a vitest suite (12 tests across 4 describe blocks)
+- `assets/behavior.test.ts`: a vitest suite (12 tests across 4 describe blocks)
   covering HMAC accept/tamper/replay, offline-token expiry, delta fold-out on a
   real RxDB memory instance including partial and duplicate acks, and the
   failover threshold with offline rescan. Shipped into the target project as
@@ -109,10 +109,10 @@ terminals and HMAC-authenticated lock hardware.
   layout the other Timerise skills use.
 
 ### Fixed
-Ten defects from the source module, each documented in
+Ten defects of the earlier implementation, each documented in
 `references/provenance.md`. The four that became hard rules:
 - Cloud `/api/sync/*` ingestion endpoints accepted unauthenticated POSTs on the
-  public internet — anyone could inject confirmed bookings, apply arbitrary
+  public internet, so anyone could inject confirmed bookings, apply arbitrary
   stock increments, or forge audit logs. Now a shared-secret header check.
 - Staff auth fell back to decode-without-verification whenever `verifyIdToken`
   threw, including for forged tokens while fully online, and never checked
@@ -130,7 +130,7 @@ Also fixed: the flush now retries while unsynced work remains instead of
 waiting for the next outage cycle; terminals rescan for the local server on
 every offline tick; island availability derives hours from the replicated site
 document and the day boundary from the site's timezone rather than hardcoded
-10:00–20:00 UTC; `_locallyModified` is declared in the schemas and the unused
+10:00 to 20:00 UTC; `_locallyModified` is declared in the schemas and the unused
 `_syncConflict` is dropped; the dead `RXDB_STORAGE_PATH` config that made
 operators believe offline data survived restarts is removed and the memory
 storage trade-off stated loudly; and replication errors clear once a cycle
