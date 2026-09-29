@@ -195,8 +195,9 @@ describe('applyStockTransaction (cloud ingestion)', () => {
   });
 });
 
-describe('AvailabilityService hours', () => {
-  it('builds slots from the replicated site hours, and none on a day without hours', async () => {
+describe('AvailabilityService', () => {
+  // Only Monday has hours; 2026-10-05 is a Monday, 2026-10-06 a Tuesday.
+  async function setup(capacity: number) {
     const db = await createRxDatabase({
       name: 'test-' + Math.random().toString(36).slice(2),
       storage: getRxStorageMemory(),
@@ -212,16 +213,31 @@ describe('AvailabilityService hours', () => {
       inventory: { schema: doc({ type: { type: 'string' }, active: { type: 'boolean' }, details: { type: 'object' } }) },
       bookings: { schema: doc({ slotType: { type: 'string' }, status: { type: 'string' }, cart: { type: 'object' } }) },
     });
-    // Only Monday has hours; 2026-10-05 is a Monday, 2026-10-06 a Tuesday.
     await collections.locations.insert({ id: 'loc1', workingHours: { monday: { from: '09:00', to: '11:00' } } });
-    await collections.inventory.insert({ id: 'wall-1', locationId: 'loc1', type: 'slot', active: true, details: { slotType: 'bouldering', capacity: 4 } });
+    await collections.inventory.insert({ id: 'wall-1', locationId: 'loc1', type: 'slot', active: true, details: { slotType: 'bouldering', capacity } });
     const svc = new AvailabilityService({ getCollection: (name: string) => (collections as Record<string, unknown>)[name] }, 'loc1');
+    return { db, svc, collections };
+  }
+
+  it('builds slots from the replicated site hours, and none on a day without hours', async () => {
+    const { db, svc } = await setup(4);
 
     const monday = await svc.getAvailableSlots('2026-10-05', 'bouldering');
     expect(monday.map((slot) => slot.timeFrom)).toEqual(['09:00', '10:00']);
     expect(monday[0]!.availableStations).toBe(4);
     // No invented default range: the cloud owns opening hours (hard rule 4).
     expect(await svc.getAvailableSlots('2026-10-06', 'bouldering')).toEqual([]);
+    await db.close();
+  });
+
+  it('counts a booking against its slot whatever format its time was sent in', async () => {
+    const { db, svc, collections } = await setup(1);
+    await collections.bookings.insert({
+      id: 'b1', locationId: 'loc1', slotType: 'bouldering', status: 'CONFIRMED',
+      cart: { slots: [{ time: '10:00-11:00', dateTimeFrom: '2026-10-05T10:00:00' }] },
+    });
+    const slots = await svc.getAvailableSlots('2026-10-05', 'bouldering');
+    expect(slots.find((slot) => slot.timeFrom === '10:00')!.availableStations).toBe(0);   // the only station is taken
     await db.close();
   });
 });

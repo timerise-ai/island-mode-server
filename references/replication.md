@@ -177,9 +177,9 @@ import * as admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 
 export async function initFirebase(opts: {
-  serviceAccountPath: string;   // Firebase Console > Service Accounts > new private key
+  serviceAccountPath: string;   // GOOGLE_APPLICATION_CREDENTIALS: Firebase Console > Service Accounts > new private key
   webApiKey: string;            // Project Settings > General > Web API key
-}): Promise<{ firestore: Firestore; projectId: string; app: FirebaseApp }> {
+}): Promise<{ firestore: Firestore; projectId: string; app: FirebaseApp; signedIn: Promise<void> }> {
   const serviceAccount = JSON.parse(readFileSync(opts.serviceAccountPath, 'utf-8'));
   if (!admin.apps.length) {
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
@@ -192,11 +192,25 @@ export async function initFirebase(opts: {
   // push would throw on every such document without this setting.
   const firestore = initializeFirestore(app, { ignoreUndefinedProperties: true });
 
-  // Admin SDK mints a token for the fixed uid the rules recognize.
-  const customToken = await admin.auth().createCustomToken('local-server');
-  await signInWithCustomToken(getAuth(app), customToken);
+  // Sign-in needs the network, so it never blocks boot: an outage at start-up
+  // must still give the local API its replica. Start replication when
+  // `signedIn` resolves (see Startup order).
+  const signedIn = signInWithRetry(app);
+  return { firestore, projectId, app, signedIn };
+}
 
-  return { firestore, projectId, app };
+async function signInWithRetry(app: FirebaseApp): Promise<void> {
+  for (;;) {
+    try {
+      // Admin SDK mints a token for the fixed uid the rules recognize.
+      const customToken = await admin.auth().createCustomToken('local-server');
+      await signInWithCustomToken(getAuth(app), customToken);
+      return;
+    } catch (err) {
+      console.error('Firebase sign-in failed; retrying in 30 s', err);
+      await new Promise((resolve) => setTimeout(resolve, 30_000));
+    }
+  }
 }
 ```
 
@@ -384,15 +398,16 @@ export class ReplicationService {
 
 ## Startup order
 
-1. Init RxDB (collections + schemas).
-2. Init Firebase (admin + client custom-token sign-in) and start replications.
+1. Init RxDB (collections + schemas), then `stock.rebuildDeltas()`.
+2. Init Firebase; it returns at once. Start replications in
+   `signedIn.then(() => replication.startAll())`, never by awaiting it.
 3. Start heartbeats ([network-failover.md](network-failover.md)).
 4. Listen on HTTP.
 
-If the internet is down at boot, steps 2 and 3 must not crash the process: catch
-and continue; replication resumes when connectivity returns, and the local
-API can serve whatever the replica holds (empty on memory storage; another
-reason to weigh persistent storage).
+If the internet is down at boot, nothing here waits for it: sign-in retries in
+the background, replication starts when it succeeds, and the local API serves
+whatever the replica holds meanwhile (empty on memory storage; another reason
+to weigh persistent storage).
 
 ## Checklist
 

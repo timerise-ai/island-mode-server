@@ -115,12 +115,16 @@ export class AvailabilityService {
     const bookings = await this.db.getCollection('bookings')
       .find({ selector: { locationId: this.locationId, slotType, status: 'CONFIRMED' } })
       .exec();
+    // Key on the start time inside dateTimeFrom, never on `slot.time`: clients
+    // send '14:00-15:00' as often as '14:00', and a key that misses the grid's
+    // 'HH:00' leaves the slot looking free, so the last station sells twice.
     const datePrefix = `${date}T`;
     const occupied = new Map<string, number>();
     for (const b of bookings) {
       for (const slot of b.toJSON().cart?.slots ?? []) {
         if (slot.dateTimeFrom?.startsWith(datePrefix)) {
-          occupied.set(slot.time, (occupied.get(slot.time) ?? 0) + 1);
+          const start = slot.dateTimeFrom.slice(datePrefix.length, datePrefix.length + 5);   // 'HH:MM'
+          occupied.set(start, (occupied.get(start) ?? 0) + 1);
         }
       }
     }
@@ -262,5 +266,6 @@ site ran out of during the outage. Use `effectiveStock` from
 - [ ] Availability derives hours from replicated config, not constants; no hours means no slots
 - [ ] All "today"/date logic uses the site timezone, never UTC ISO slicing
 - [ ] Booking creation and stock checks serialized with mutexes
+- [ ] Occupancy keyed on the start time in `dateTimeFrom`, whatever format `slot.time` arrives in
 - [ ] Offline mutations set `_offlineCreated`/`_locallyModified`
 - [ ] Card-payment paths degrade to counter/pending, never fake success

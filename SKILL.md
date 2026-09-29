@@ -18,7 +18,7 @@ description: >
   the three replication tiers, the checkpoint stamp every cloud write needs,
   the per-ID stock-delta fold-out, idempotent ingestion keyed on
   client-generated IDs, the offline-gated staff token fallback, the
-  heartbeat and status chain, and a 16-test vitest suite for the trust-critical
+  heartbeat and status chain, and a 17-test vitest suite for the trust-critical
   logic. Node/NestJS local server and Firestore cloud with Next.js route
   handlers as the reference API; the HTTP framework, IdP and vocabulary are
   seams in architecture.md. Not a read cache, not multi-master sync between
@@ -131,16 +131,16 @@ imports and seams; report a template you believe is wrong in the handover, never
    [sync-flush.md](references/sync-flush.md).
 4. Wire the heartbeat and status chain and client failover:
    [network-failover.md](references/network-failover.md).
-5. Guard the local API (staff, kiosk, hardware HMAC, static token):
-   [auth.md](references/auth.md).
-6. Mirror the cloud endpoints the terminals need:
-   [local-api.md](references/local-api.md).
-7. Deploy on site: both env files (`LOCATION_ID` required, `CORS_ORIGINS`),
-   systemd, nginx TLS, mDNS: [operations.md](references/operations.md).
-8. Carry [behavior.test.ts](assets/behavior.test.ts) into `local-server/src/`,
+5. Guard the local API and mirror the endpoints terminals need:
+   [auth.md](references/auth.md), [local-api.md](references/local-api.md).
+6. Deploy on site: both env files keep every name in operations.md
+   (`GOOGLE_APPLICATION_CREDENTIALS` is a path read from the environment, not
+   to be inlined; `LOCATION_ID` required), systemd, nginx TLS, mDNS, CORS:
+   [operations.md](references/operations.md).
+7. Carry [behavior.test.ts](assets/behavior.test.ts) into `local-server/src/`,
    point its `../next/` imports at `lib/island/` and `lib/sync/`, install
-   vitest, and run it unmodified: 16 tests.
-9. Hand over the storage loss window, the `replicationStamp()` audit of the
+   vitest, and run it unmodified: 17 tests.
+8. Hand over the storage loss window, the `replicationStamp()` audit of the
    host's own writes, the mirrored secrets, and the terminal CA and CORS:
    [operations.md](references/operations.md) (*Handover*).
 

@@ -143,6 +143,18 @@ erroring long after it had healed.
     `_locallyModified: false`; stored with the site's flags, the copy was pulled
     back and the retry timer resent the booking every minute.
   - `StockService.adjust()` for the adjust endpoint the local API lists.
+- Found by the 0.1.8 agent eval and fixed in 0.1.9:
+  - Occupancy keyed on the start time inside `dateTimeFrom`. 0.1.8 keyed it on
+    the raw `slot.time`, so a booking sent as `'10:00-11:00'` never counted
+    against the `'10:00'` slot and the last station sold twice (reproduced; the
+    suite covers it).
+  - `initFirebase()` returns before sign-in and retries it in the background,
+    and replication starts when `signedIn` resolves. 0.1.8 awaited sign-in,
+    which needs the network, so a box booted during an outage never started
+    replicating. `createCustomToken` signs locally with a service-account
+    credential (firebase-admin 13 source).
+  - The `GUARD_DEPS` provider token on `AuthGuard`: NestJS cannot inject an
+    interface by type (resolved by a NestJS 11 application context).
 - Delta-map **rebuild on boot**, as `StockService.rebuildDeltas()` since 0.1.8
   ([sync-flush.md](sync-flush.md)).
 - The JSONL journaling option for offline writes (listed as an option only).
@@ -159,11 +171,11 @@ Every TypeScript template compiles under `strict` and
 `--noUncheckedIndexedAccess` (Node-side against rxdb 16.11 / firebase 11.10 /
 firebase-admin 13 / @nestjs 11; Next-side against Next 16 / React 19), the
 suite included. The trust-critical logic passes the behavioural suite in
-`assets/behavior.test.ts` (16 tests: HMAC accept/tamper/replay, offline-token
+`assets/behavior.test.ts` (17 tests: HMAC accept/tamper/replay, offline-token
 expiry, delta fold-out on a real RxDB memory instance including partial-ack,
-duplicate-ack and a rebuild after restart, the ingestion receipt against a replicated transaction
-document and a redelivery, config-driven opening hours, failover threshold +
-offline rescan). Not verified by
+duplicate-ack and a rebuild after restart, the ingestion receipt against a
+replicated transaction document and a redelivery, config-driven opening hours
+and slot occupancy, failover threshold + offline rescan). Not verified by
 execution: Firestore rules, the replication plugin against a live Firestore,
 nginx/systemd/avahi configs, reviewed against the earlier deployment only.
 

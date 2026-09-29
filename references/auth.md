@@ -32,12 +32,13 @@ tokens even offline.
 
 ```ts
 // local-server/src/auth-guard.ts
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Inject, Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import * as admin from 'firebase-admin';
 import { verifyHmac } from './hmac.util';
 
 export const AUTH_TYPE_KEY = 'auth_type';
+export const GUARD_DEPS = 'GUARD_DEPS';   // provider token: an interface cannot be injected by type
 export const MIN_ROLE_KEY = 'min_role';
 export type AuthType = 'staff' | 'hmac' | 'token' | 'kiosk';
 export type StaffRole = 'operator' | 'manager' | 'admin';
@@ -55,7 +56,7 @@ interface GuardDeps {
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private reflector: Reflector, private deps: GuardDeps) {}
+  constructor(private reflector: Reflector, @Inject(GUARD_DEPS) private deps: GuardDeps) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const authType =
@@ -141,6 +142,9 @@ export function decodeOfflineToken(token: string): string {
   return uid;
 }
 ```
+
+Register the dependencies once, in the module that provides the guard:
+`{ provide: GUARD_DEPS, useFactory: (...) => ({ getStaff, isOffline, locationId, ... }), inject: [...] }`.
 
 `getStaff` reads the replicated staff collection
 ([replication.md](replication.md)), which means offline login only works for
