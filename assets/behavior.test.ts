@@ -100,7 +100,7 @@ describe('StockService delta overlay', () => {
     });
     await collections.inventory.insert({ id: 'ammo-9mm', locationId: 'loc1', stockLevel: 100 });
     const svc = new StockService(collections.inventory_transactions as any, collections.inventory as any, 'loc1');
-    return { db, svc };
+    return { db, svc, collections };
   }
 
   const staff = { uid: 's1', name: 'Staff One' };
@@ -132,6 +132,19 @@ describe('StockService delta overlay', () => {
     expect(await svc.effectiveStock('ammo-9mm')).toBe(80);
     // tx2 still queued for the next flush.
     expect((await svc.getUnsynced()).map((t) => t.quantityChange)).toEqual([-20]);
+    await db.close();
+  });
+
+  it('rebuilds the overlay from unsynced transactions after a restart', async () => {
+    const { db, svc, collections } = await setup();
+    const tx1 = await svc.itemOut('ammo-9mm', 30, staff);
+    await svc.itemOut('ammo-9mm', 20, staff);
+    await svc.markSynced([tx1.id]);
+
+    // A fresh service is a restarted process: empty overlay until rebuilt.
+    const restarted = new StockService(collections.inventory_transactions as any, collections.inventory as any, 'loc1');
+    await restarted.rebuildDeltas();
+    expect(await restarted.effectiveStock('ammo-9mm')).toBe(80);   // only the unacked -20 replays
     await db.close();
   });
 

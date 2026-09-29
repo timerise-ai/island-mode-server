@@ -129,7 +129,22 @@ erroring long after it had healed.
     without CORS headers a browser rejects every failover ping to the box
     (the Fetch standard's CORS check, per MDN). The status cron fails closed
     when `CRON_SECRET` is unset, like the sync endpoints.
-- Delta-map **rebuild-on-boot** guidance ([sync-flush.md](sync-flush.md)).
+- Found by the 0.1.7 agent eval and fixed in 0.1.8, each reproduced by a probe
+  or read in the library source:
+  - The `locations` pull filtered by document ID. 0.1.7 passed `pull: {}`, and
+    the plugin then queries the whole collection, so every box replicated every
+    site's config (rxdb 16.11 source; the filter passes the client SDK's query
+    validation, live Firestore not run).
+  - `ignoreUndefinedProperties` on the replica's Firestore client. RxDB keeps
+    optional fields as `undefined` keys and the client SDK rejects `undefined`
+    in a batched write, so pushing a stock transaction without a `reason`
+    threw (probe against firebase 11.10).
+  - The bookings ingestion stores `_offlineCreated: false` and
+    `_locallyModified: false`; stored with the site's flags, the copy was pulled
+    back and the retry timer resent the booking every minute.
+  - `StockService.adjust()` for the adjust endpoint the local API lists.
+- Delta-map **rebuild on boot**, as `StockService.rebuildDeltas()` since 0.1.8
+  ([sync-flush.md](sync-flush.md)).
 - The JSONL journaling option for offline writes (listed as an option only).
 - Per-site custom-token scoping suggestion in the rules section.
 - The destination paths named on the first line of each code block
@@ -144,9 +159,9 @@ Every TypeScript template compiles under `strict` and
 `--noUncheckedIndexedAccess` (Node-side against rxdb 16.11 / firebase 11.10 /
 firebase-admin 13 / @nestjs 11; Next-side against Next 16 / React 19), the
 suite included. The trust-critical logic passes the behavioural suite in
-`assets/behavior.test.ts` (15 tests: HMAC accept/tamper/replay, offline-token
-expiry, delta fold-out on a real RxDB memory instance including partial-ack
-and duplicate-ack, the ingestion receipt against a replicated transaction
+`assets/behavior.test.ts` (16 tests: HMAC accept/tamper/replay, offline-token
+expiry, delta fold-out on a real RxDB memory instance including partial-ack,
+duplicate-ack and a rebuild after restart, the ingestion receipt against a replicated transaction
 document and a redelivery, config-driven opening hours, failover threshold +
 offline rescan). Not verified by
 execution: Firestore rules, the replication plugin against a live Firestore,

@@ -36,8 +36,14 @@ CRON_SECRET=                               # unset = the status cron answers 401
 NEXT_PUBLIC_LOCAL_SERVER_URL=https://island.local
 ```
 
-Commit both as `.env.example` files with every name listed and every secret
-empty. `LOCATION_ID` is required: the server refuses to start without it and
+Commit both as `.env.example` files with every name above, the tuning pair
+`HEARTBEAT_INTERVAL_MS` and `HEARTBEAT_FAILURE_THRESHOLD` included (they feed
+the `NetworkService` constructor), and every secret empty. Keep the names:
+`GOOGLE_APPLICATION_CREDENTIALS` already reads the credential from the
+environment, as a path to the key file outside the checkout, so do not inline
+the key into new variables; `NEXT_PUBLIC_LOCAL_SERVER_URL` is a LAN address,
+not a credential, so the bundler inlining it at build time is intended.
+`LOCATION_ID` is required: the server refuses to start without it and
 never falls back to a default ID, since a wrong ID replicates and serves
 another site's data. The four secrets are never defaulted either.
 

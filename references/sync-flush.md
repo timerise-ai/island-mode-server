@@ -73,6 +73,11 @@ export class StockService {
     return this.mutex.runExclusive(() => this.record(itemId, 'ITEM_IN', quantity, by, reason));
   }
 
+  /** Signed correction after a count; the cloud applies it like any other movement. */
+  async adjust(itemId: string, quantityChange: number, by: { uid: string; name: string }, reason: string): Promise<StockTransaction> {
+    return this.mutex.runExclusive(() => this.record(itemId, 'ADJUSTMENT', quantityChange, by, reason));
+  }
+
   private async record(itemId: string, action: StockTransaction['action'], quantityChange: number, by: { uid: string; name: string }, reason?: string, relatedBookingId?: string): Promise<StockTransaction> {
     const tx: StockTransaction = {
       id: randomUUID(),
@@ -90,6 +95,14 @@ export class StockService {
     await this.transactions.insert(tx);
     this.localDeltaMap.set(itemId, this.delta(itemId) + quantityChange);
     return tx;
+  }
+
+  /** Boot: the overlay is memory-only, so replay every unsynced transaction into it. */
+  async rebuildDeltas(): Promise<void> {
+    this.localDeltaMap.clear();
+    for (const tx of await this.getUnsynced()) {
+      this.localDeltaMap.set(tx.inventoryItemId, this.delta(tx.inventoryItemId) + tx.quantityChange);
+    }
   }
 
   async getUnsynced(): Promise<StockTransaction[]> {
@@ -117,9 +130,9 @@ export class StockService {
 }
 ```
 
-Restart caveat: the delta map is memory-only. On restart it is rebuilt by
-replaying unsynced transactions (`getUnsynced()`, then re-add deltas); do that in
-boot code. With memory storage the transactions themselves are gone too; see
+Restart caveat: the delta map is memory-only. Call `rebuildDeltas()` once at
+boot, before the local API listens, to replay the unsynced transactions into
+it. With memory storage the transactions themselves are gone too; see
 the storage decision in [replication.md](replication.md).
 
 ## The flush service
@@ -336,7 +349,13 @@ Bookings and lock-logs ingestion follow the same skeleton, simpler because a
 `doc(id).set(...)` is naturally idempotent: auth check, strip RxDB internals
 (`_rev`, `_attachments`, `_meta`), convert date strings to `Date`, stamp
 `serverTimestamp` + `_deleted: false` + `syncedFromOffline: true`, and return
-`syncedIds`. One wrinkle worth keeping: mark offline bookings with a
+`syncedIds`. The bookings route also writes `_offlineCreated: false` and
+`_locallyModified: false`: those flags describe the site's pending work, and
+bookings are bidirectional, so the stored copy is pulled straight back down.
+Stored with `_offlineCreated: true`, it would overwrite the site's
+acknowledgment, and the retry timer would resend the booking every minute;
+provenance stays visible in `syncedFromOffline: true` and the `offline-` ID
+prefix. One wrinkle worth keeping: mark offline bookings with that
 `syncedFromOffline: true` field so support can filter them, and be aware the
 set() gives them `Date`-typed `createdAt` while replicated docs may carry
 ISO strings; normalize in one place if your queries sort on it.
@@ -348,5 +367,6 @@ ISO strings; normalize in one place if your queries sort on it.
       log entry, never on the replicated transaction document
 - [ ] Local delta overlay resets per acknowledged ID, never wholesale
 - [ ] Flush retries while online, not only on the next reconnect
-- [ ] Delta map rebuilt from unsynced transactions on boot
+- [ ] Delta map rebuilt from unsynced transactions on boot (`rebuildDeltas()`)
+- [ ] Stored offline bookings carry `_offlineCreated: false`, or they are resent every minute
 - [ ] Flushed collections use client-generated UUIDs as document IDs

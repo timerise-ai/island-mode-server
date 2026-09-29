@@ -18,7 +18,7 @@ description: >
   the three replication tiers, the checkpoint stamp every cloud write needs,
   the per-ID stock-delta fold-out, idempotent ingestion keyed on
   client-generated IDs, the offline-gated staff token fallback, the
-  heartbeat and status chain, and a 15-test vitest suite for the trust-critical
+  heartbeat and status chain, and a 16-test vitest suite for the trust-critical
   logic. Node/NestJS local server and Firestore cloud with Next.js route
   handlers as the reference API; the HTTP framework, IdP and vocabulary are
   seams in architecture.md. Not a read cache, not multi-master sync between
@@ -139,7 +139,7 @@ imports and seams; report a template you believe is wrong in the handover, never
    systemd, nginx TLS, mDNS: [operations.md](references/operations.md).
 8. Carry [behavior.test.ts](assets/behavior.test.ts) into `local-server/src/`,
    point its `../next/` imports at `lib/island/` and `lib/sync/`, install
-   vitest, and run it unmodified: 15 tests.
+   vitest, and run it unmodified: 16 tests.
 9. Hand over the storage loss window, the `replicationStamp()` audit of the
    host's own writes, the mirrored secrets, and the terminal CA and CORS:
    [operations.md](references/operations.md) (*Handover*).

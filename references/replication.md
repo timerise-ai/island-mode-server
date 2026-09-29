@@ -172,7 +172,7 @@ user and Firestore security rules scope what it can touch:
 // local-server/src/firebase-client.ts
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { initializeFirestore, type Firestore } from 'firebase/firestore';
 import * as admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 
@@ -187,7 +187,10 @@ export async function initFirebase(opts: {
   const projectId = serviceAccount.project_id as string;
 
   const app = initializeApp({ projectId, apiKey: opts.webApiKey });
-  const firestore = getFirestore(app);
+  // RxDB keeps optional fields as `undefined` keys (`reason` on a stock
+  // transaction), and the client SDK rejects `undefined` in a write, so the
+  // push would throw on every such document without this setting.
+  const firestore = initializeFirestore(app, { ignoreUndefinedProperties: true });
 
   // Admin SDK mints a token for the fixed uid the rules recognize.
   const customToken = await admin.auth().createCustomToken('local-server');
@@ -234,7 +237,7 @@ other sites' bookings. If that matters, mint per-site tokens
 
 ```ts
 // local-server/src/replication.service.ts
-import { collection as fsCollection, query, where, getCountFromServer, type Firestore } from 'firebase/firestore';
+import { collection as fsCollection, query, where, documentId, getCountFromServer, type Firestore } from 'firebase/firestore';
 import { replicateFirestore, type RxFirestoreReplicationState } from 'rxdb/plugins/replication-firestore';
 import type { RxCollection } from 'rxdb';
 
@@ -256,12 +259,14 @@ export class ReplicationService {
   ) {}
 
   startAll(): void {
-    // Own config doc, pulled by document ID, no tenant-field filter.
+    // Own config doc, pulled by document ID, no tenant-field filter. An empty
+    // `pull: {}` would pull every site's document: the plugin queries the
+    // whole collection when no filter is given.
     this.add('locations', replicateFirestore({
       replicationIdentifier: `pull-locations-${this.locationId}`,
       collection: this.db.getCollection('locations'),
       firestore: this.fs('locations'),
-      pull: {},
+      pull: { filter: [where(documentId(), '==', this.locationId)] },
       live: true,
       serverTimestampField: 'serverTimestamp',
     }));

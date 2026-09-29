@@ -123,7 +123,7 @@ validation was off, and would break the day a validation plugin is added.
 
 | Seam | This skill ships | The host supplies |
 |---|---|---|
-| Domain entities | `location/booking/inventory/lock/staff/pricing` + this rename table | Its vocabulary, e.g. location to store/clinic/site, booking to order/appointment, lock to door/device |
+| Domain entities | `location/booking/inventory/lock/staff/pricing` + this rename table | Its vocabulary, e.g. location to store/clinic/site, booking to order/appointment, lock to door/device, the booking's `ammunition` add-ons to rentals/extras |
 | Tenant scope | `locationId` (env-derived, one per server) | Its field name; array variant for directories |
 | Cloud API | Next.js route handlers as reference | Any framework; the contracts are plain JSON-over-POST |
 | Staff identity | Firebase Auth ID tokens + role hierarchy | Its IdP; keep the online-verify/offline-lookup split |
