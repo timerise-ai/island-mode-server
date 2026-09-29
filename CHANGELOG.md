@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2026-09-29
+
+Fix release, from scoring the prompt-1 agent eval runs against 0.1.8.
+
+### Fixed
+
+- Offline availability keys occupancy on the start time inside `dateTimeFrom`. 0.1.8
+  keyed it on the raw `slot.time`, so a booking sent as `'10:00-11:00'` left its
+  `'10:00'` slot looking free and the last station could be sold twice. Apps built
+  from earlier versions should copy in `getAvailableSlots()`.
+- `initFirebase()` no longer waits for sign-in: it retries in the background and
+  returns `signedIn`, and replication starts when that resolves. A server booted
+  during an outage previously never started replicating.
+- `AuthGuard` takes its dependencies through the `GUARD_DEPS` provider token, since
+  NestJS cannot inject an interface by type.
+
+### Added
+
+- A test for occupancy with a time sent as a range: 17 tests in 6 describe blocks.
+
+### Changed
+
+- `SKILL.md`: the deploy step says `GOOGLE_APPLICATION_CREDENTIALS` is a path read
+  from the environment and is not to be inlined; the guard and local API steps merge
+  into one.
+- `references/replication.md`: the startup order rebuilds the stock overlay first and
+  starts replication from `signedIn`.
+
 ## [0.1.8] - 2026-09-29
 
 Fix release, from scoring the prompt-1 agent eval runs against 0.1.7.
