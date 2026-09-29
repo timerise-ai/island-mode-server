@@ -1,18 +1,19 @@
 # Outage detection and failover
 
-Four cooperating monitors. Keep their responsibilities separate — each answers
+Four cooperating monitors. Keep their responsibilities separate; each answers
 one question for one audience.
 
 | Monitor | Runs on | Question it answers | Cadence |
 |---|---|---|---|
-| Cloud heartbeat | local server | "Can I reach the cloud?" → drives ONLINE/OFFLINE mode + flush trigger | 5 s, offline after 3 consecutive failures |
+| Cloud heartbeat | local server | "Can I reach the cloud?" Drives ONLINE/OFFLINE mode + flush trigger | 5 s, offline after 3 consecutive failures |
 | Firestore heartbeat | local server | "Is the site's server alive?" (writes `lastHeartbeatAt` to the site doc) | 30 s |
-| Status cron | cloud | "Should customers be able to book this site right now?" (marks `status: offline`) | 1–5 min |
+| Status cron | cloud | "Should customers be able to book this site right now?" (marks `status: offline`) | 1 to 5 min |
 | Client failover | terminal PWAs | "Which API base URL do I use?" | 5 s |
 
 ## 1. Local server: cloud heartbeat + mode
 
 ```ts
+// local-server/src/network-monitor.ts
 import { EventEmitter } from 'events';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
@@ -81,7 +82,7 @@ export class NetworkService extends EventEmitter {
    * Heartbeat into the site's own Firestore doc. The client SDK buffers this
    * while offline, which is exactly right: no fresh heartbeat reaches the
    * cloud during an outage, so the cron marks the site offline.
-   * Deliberately does NOT stamp `serverTimestamp` — this write must not churn
+   * Deliberately does NOT stamp `serverTimestamp`; this write must not churn
    * the replication checkpoint every 30 s.
    */
   private async writeFirestoreHeartbeat(): Promise<void> {
@@ -92,7 +93,7 @@ export class NetworkService extends EventEmitter {
         { merge: true },
       );
     } catch {
-      /* buffered or failed — the cron-side staleness check is the safety net */
+      /* buffered or failed; the cron-side staleness check is the safety net */
     }
   }
 
@@ -107,16 +108,16 @@ export class NetworkService extends EventEmitter {
 
 A scheduled endpoint scans site documents and flips `status` when
 `lastHeartbeatAt` goes stale. Customer-facing booking UIs subscribe to the
-site doc (`onSnapshot`) and disable the flow when `status === 'offline'` —
+site doc (`onSnapshot`) and disable the flow when `status === 'offline'`;
 that is what prevents cloud/island double-booking.
 
 ```ts
-// app/api/cron/server-status/route.ts — protect with your cron secret
+// app/api/cron/server-status/route.ts (protect with your cron secret)
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
-const STALE_THRESHOLD_MS = 5 * 60_000;   // ≥ cron cadence, or sites flap
+const STALE_THRESHOLD_MS = 5 * 60_000;   // >= cron cadence, or sites flap
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest) {
   for (const docSnap of snapshot.docs) {
     const data = docSnap.data();
     const last = data.lastHeartbeatAt?.toMillis?.();
-    if (!last) continue;   // site not running a local server — leave it alone
+    if (!last) continue;   // site not running a local server, leave it alone
     const newStatus = now - last > STALE_THRESHOLD_MS ? 'offline' : 'online';
     if (newStatus !== (data.status ?? 'online')) {
       await docSnap.ref.update({ status: newStatus, statusUpdatedAt: FieldValue.serverTimestamp() });
@@ -143,7 +144,7 @@ export async function GET(request: NextRequest) {
 ```
 
 Pick the threshold consciously: it is the worst-case window in which customers
-can still book online against a site that has gone dark. 2× the cron cadence
+can still book online against a site that has gone dark. Twice the cron cadence
 is a sane floor.
 
 ## 3. Terminals: client failover manager
@@ -152,6 +153,7 @@ Framework-free singleton; a thin React provider exposes it. Cloud is always
 preferred; the local server is only consulted after the failure threshold.
 
 ```ts
+// lib/island/network-manager.ts
 export type ClientNetworkMode = 'online' | 'offline' | 'checking';
 
 export interface NetworkState {
@@ -166,7 +168,7 @@ const FAILURE_THRESHOLD = 3;
 const HEALTH_TIMEOUT = 3_000;
 
 // Candidate local-server addresses, tried in order. HTTPS with a self-signed
-// CA — devices must have the CA installed (see operations.md) or every
+// CA: devices must have the CA installed (see operations.md) or every
 // candidate fails silently from the browser.
 const LOCAL_SERVER_FALLBACKS = [
   process.env.NEXT_PUBLIC_LOCAL_SERVER_URL,   // rename to your bundler's env convention
@@ -224,7 +226,7 @@ export class NetworkManager {
     this.consecutiveFailures++;
     if (this.consecutiveFailures < FAILURE_THRESHOLD) return;
 
-    // Rescan EVERY tick while offline — the local server may boot, move, or
+    // Rescan EVERY tick while offline: the local server may boot, move, or
     // drop after the transition. Scanning only once at the flip means a
     // late-starting local server is never found until the cloud recovers.
     const localUrl = await this.findLocalServer();
@@ -269,6 +271,7 @@ export function getNetworkManager(): NetworkManager {
 React wiring (adapt to your framework):
 
 ```tsx
+// lib/island/network-provider.tsx
 'use client';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { getNetworkManager, type NetworkState } from './network-manager';
@@ -302,22 +305,23 @@ export function useNetwork() { return useContext(NetworkContext); }
 ```
 
 Every API call in the terminal apps goes through one fetch wrapper that
-prefixes `apiBaseUrl` — that single line is the whole failover from the app
+prefixes `apiBaseUrl`; that single line is the whole failover from the app
 code's point of view:
 
 ```ts
+// lib/island/api-fetch.ts
 const fullUrl = apiBaseUrl ? `${apiBaseUrl}${path}` : path;
 ```
 
 Surface `isOffline` in the terminal UI (banner or indicator) using the host's
-own components — staff must be able to tell a customer "we're in island mode,
+own components: staff must be able to tell a customer "we're in island mode,
 card payments are unavailable" without calling IT.
 
 ## Failure modes this design already survives
 
 | Event | What happens |
 |---|---|
-| Single dropped health check | Nothing — thresholds absorb it (both sides) |
+| Single dropped health check | Nothing; thresholds absorb it (both sides) |
 | Cloud down, local server up | Terminals fail over within ~15 s; site doc goes stale; cron blocks cloud bookings within the stale threshold |
 | Cloud down, local server ALSO down | Terminals stay in offline mode with `apiBaseUrl: ''`; requests fail visibly rather than hitting a wrong server |
 | Local server reboots mid-outage | Terminals rediscover it on a later rescan tick (hardened behaviour: the earlier implementation scanned only once) |
@@ -326,8 +330,8 @@ card payments are unavailable" without calling IT.
 
 ## Checklist
 
-- [ ] Both failure thresholds ≥ 3 consecutive checks
-- [ ] Cron stale threshold ≥ 2× cron cadence
+- [ ] Both failure thresholds at least 3 consecutive checks
+- [ ] Cron stale threshold at least twice the cron cadence
 - [ ] Booking UI subscribes to site status and blocks when offline
 - [ ] Client rescans for the local server on every offline tick
 - [ ] One fetch wrapper owns `apiBaseUrl` prefixing

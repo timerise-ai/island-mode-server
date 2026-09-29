@@ -1,4 +1,4 @@
-# Replication: RxDB ↔ Firestore
+# Replication: RxDB and Firestore
 
 The replica is an RxDB database with one collection per replicated Firestore
 collection, kept live by `replicateFirestore` from
@@ -6,7 +6,8 @@ collection, kept live by `replicateFirestore` from
 
 Dependencies (local server `package.json`):
 
-```json
+```jsonc
+// local-server/package.json
 {
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -25,7 +26,7 @@ Dependencies (local server `package.json`):
 
 Both Firebase SDKs are required: **admin** to mint a custom token and verify
 staff ID tokens; **client** because the replication plugin drives the client
-SDK (and therefore runs under security rules — a feature, not a limitation).
+SDK (and therefore runs under security rules: a feature, not a limitation).
 
 ## The checkpoint trap (read this before anything else)
 
@@ -34,15 +35,16 @@ consequences that WILL bite silently:
 
 1. **Every write the cloud app makes to a replicated collection must set
    `serverTimestamp: FieldValue.serverTimestamp()`** (and `_deleted: false` on
-   create). A document written without it is never pulled — no error, no log,
+   create). A document written without it is never pulled: no error, no log,
    it simply doesn't exist for the site. Audit every cloud write path
    (creates, updates, webhooks, admin edits, seeds) when you adopt this.
 2. **Deletes must be soft**: set `_deleted: true` + a fresh `serverTimestamp`.
    A hard `doc.delete()` never replicates; the site keeps serving the ghost.
 
-Cheapest enforcement: one shared helper on the cloud —
+Cheapest enforcement: one shared helper on the cloud:
 
 ```ts
+// lib/firestore/replication-stamp.ts
 import { FieldValue } from 'firebase-admin/firestore';
 
 /** Merge into every write to a replicated collection. */
@@ -54,9 +56,10 @@ export function replicationStamp() {
 ## Storage: decide the loss window explicitly
 
 ```ts
+// local-server/src/database.service.ts
 // Memory storage: replica repopulates from Firestore on startup via replication.
 // TRADE-OFF: a restart while OFFLINE loses all offline-created work
-// (bookings, stock transactions, logs) — the exact data island mode exists
+// (bookings, stock transactions, logs), the exact data island mode exists
 // to protect. Acceptable only if the box is on a UPS and restarts are rare.
 storage: getRxStorageMemory(),
 ```
@@ -68,7 +71,7 @@ but not for offline-created documents. Options, in order of preference:
 |---|---|---|
 | Persistent RxDB storage (SQLite) | RxDB Premium license | Cleanest: everything survives restarts |
 | Journal offline writes to an append-only file (JSONL) next to memory storage, replay into RxDB on boot | ~a day of work | Only offline-created/unsynced docs need journaling |
-| Accept the loss window | free | Document it for operators; pair with `Restart=always` awareness — systemd restarting a crashed server mid-outage is silent data loss |
+| Accept the loss window | free | Document it for operators; pair with `Restart=always` awareness; systemd restarting a crashed server mid-outage is silent data loss |
 
 Whichever you choose, **say so in the runbook**. The earlier implementation
 shipped memory storage while its deployment guide instructed operators to
@@ -77,11 +80,12 @@ provision a persistent data directory that nothing used.
 ## Schemas
 
 RxDB needs a JSON schema per collection. Keep them permissive (`type:
-'object'` for nested blobs) — the cloud owns validation. Declare the
+'object'` for nested blobs); the cloud owns validation. Declare the
 meta-fields; the plugin manages `serverTimestamp`/`_deleted` itself (do NOT
 declare those two).
 
 ```ts
+// local-server/src/schemas.ts
 import type { RxJsonSchema } from 'rxdb';
 
 export interface RxBooking {
@@ -117,7 +121,7 @@ export const bookingSchema: RxJsonSchema<RxBooking> = {
     checkedInAt: { type: 'string' },
     checkedInBy: { type: 'string' },
     _offlineCreated: { type: 'boolean' },
-    _locallyModified: { type: 'boolean' },        // declare it — patches set it
+    _locallyModified: { type: 'boolean' },        // declare it, patches set it
     createdAt: { type: 'string' },
     updatedAt: { type: 'string' },
   },
@@ -128,6 +132,7 @@ export const bookingSchema: RxJsonSchema<RxBooking> = {
 Database service (framework-neutral core):
 
 ```ts
+// local-server/src/database.service.ts
 import { createRxDatabase, addRxPlugin, type RxDatabase, type RxCollection } from 'rxdb';
 import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
@@ -164,6 +169,7 @@ The plugin uses the *client* SDK, so the local server signs in as a synthetic
 user and Firestore security rules scope what it can touch:
 
 ```ts
+// local-server/src/firebase-client.ts
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
@@ -171,8 +177,8 @@ import * as admin from 'firebase-admin';
 import { readFileSync } from 'fs';
 
 export async function initFirebase(opts: {
-  serviceAccountPath: string;   // Firebase Console → Service Accounts → new private key
-  webApiKey: string;            // Project Settings → General → Web API key
+  serviceAccountPath: string;   // Firebase Console > Service Accounts > new private key
+  webApiKey: string;            // Project Settings > General > Web API key
 }): Promise<{ firestore: Firestore; projectId: string; app: FirebaseApp }> {
   const serviceAccount = JSON.parse(readFileSync(opts.serviceAccountPath, 'utf-8'));
   if (!admin.apps.length) {
@@ -191,7 +197,7 @@ export async function initFirebase(opts: {
 }
 ```
 
-Security rules — give the synthetic uid exactly the tier each collection needs:
+Security rules: give the synthetic uid exactly the tier each collection needs:
 
 ```
 // firestore.rules
@@ -212,13 +218,14 @@ match /inventory_transactions/{id} { allow write: if isLocalServer(); } // push-
 ```
 
 Limitation to accept: all sites share the uid `local-server`, so rules cannot
-scope one site's server to its own documents — a compromised site box can read
+scope one site's server to its own documents, so a compromised site box can read
 other sites' bookings. If that matters, mint per-site tokens
 (`createCustomToken(locationId)` plus a claims check in rules).
 
 ## The replication service
 
 ```ts
+// local-server/src/replication.service.ts
 import { collection as fsCollection, query, where, getCountFromServer, type Firestore } from 'firebase/firestore';
 import { replicateFirestore, type RxFirestoreReplicationState } from 'rxdb/plugins/replication-firestore';
 import type { RxCollection } from 'rxdb';
@@ -241,7 +248,7 @@ export class ReplicationService {
   ) {}
 
   startAll(): void {
-    // Own config doc — pulled by document ID, no tenant-field filter.
+    // Own config doc, pulled by document ID, no tenant-field filter.
     this.add('locations', replicateFirestore({
       replicationIdentifier: `pull-locations-${this.locationId}`,
       collection: this.db.getCollection('locations'),
@@ -369,8 +376,8 @@ export class ReplicationService {
 3. Start heartbeats ([network-failover.md](network-failover.md)).
 4. Listen on HTTP.
 
-If the internet is down at boot, steps 2–3 must not crash the process: catch
-and continue — replication resumes when connectivity returns, and the local
+If the internet is down at boot, steps 2 and 3 must not crash the process: catch
+and continue; replication resumes when connectivity returns, and the local
 API can serve whatever the replica holds (empty on memory storage; another
 reason to weigh persistent storage).
 

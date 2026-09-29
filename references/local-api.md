@@ -1,7 +1,7 @@
 # The local API surface
 
 The local server mirrors the *subset* of the cloud API that terminals need
-during an outage — same paths, same response shapes, so the client failover is
+during an outage: same paths, same response shapes, so the client failover is
 literally a base-URL prefix ([network-failover.md](network-failover.md)).
 Resist mirroring more: every endpoint you add is behaviour you must keep
 matching the cloud forever.
@@ -29,6 +29,7 @@ firewall, or put it behind staff auth if the LAN is not trusted.
 ## Health and status
 
 ```ts
+// local-server/src/status.controller.ts
 @Get('health')
 getHealth() {
   return {
@@ -68,6 +69,7 @@ document, never from constants**. (The earlier implementation hardcoded
 website's opening-hours-driven slots. Both fixes are folded in below.)
 
 ```ts
+// local-server/src/availability.service.ts
 export interface SlotAvailability {
   slotId: string;
   timeFrom: string;        // 'HH:00'
@@ -88,7 +90,7 @@ export class AvailabilityService {
     const site = await this.db.getCollection('locations').findOne(this.locationId).exec();
     const dayName = new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     const hours = site?.toJSON?.().workingHours?.[dayName] as { from?: string; to?: string } | undefined;
-    // Conservative fallback if config is missing — visible, not silent.
+    // Conservative fallback if config is missing: visible, not silent.
     const startHour = hours?.from ? parseInt(hours.from, 10) : 10;
     const endHour = hours?.to ? parseInt(hours.to, 10) : 20;
     return { startHour, endHour };
@@ -138,7 +140,7 @@ export class AvailabilityService {
 
 Dates: treat `date` and slot times as **site-local wall-clock strings**
 end-to-end (that is what `dateTimeFrom` prefix-matching assumes). Never derive
-"today" from `new Date().toISOString()` — that is UTC and shifts the day
+"today" from `new Date().toISOString()`; that is UTC and shifts the day
 boundary; use the site's IANA timezone from the replicated config:
 
 ```ts
@@ -153,6 +155,7 @@ Serialized through a mutex so two kiosks cannot double-book the last station:
 the replica is process-local, so a process-local mutex is a complete fix.
 
 ```ts
+// local-server/src/bookings.service.ts
 import { randomUUID } from 'crypto';
 import { Mutex } from 'async-mutex';
 
@@ -177,7 +180,7 @@ export async function createOfflineBooking(deps: {
       const date = firstSlot.dateTimeFrom.split('T')[0]!;
       const available = await deps.availability.getAvailableSlots(date, request.slotType);
       for (const slot of request.slots) {
-        const timeFrom = slot.time.substring(0, 5);   // normalize '14:00-15:00' → '14:00'
+        const timeFrom = slot.time.substring(0, 5);   // normalize '14:00-15:00' to '14:00'
         const info = available.find((a) => a.timeFrom === timeFrom);
         if (!info || info.availableStations <= 0) {
           throw new Error(`Slot ${slot.time} is not available`);
@@ -222,6 +225,7 @@ Any offline mutation of a bidirectional document must set the push-filter flag
 and bump `updatedAt`:
 
 ```ts
+// local-server/src/bookings.service.ts, and every other offline write to a bidirectional collection
 await doc.incrementalPatch({
   checkedInAt: new Date().toISOString(),
   checkedInBy: staffUid,
@@ -230,16 +234,16 @@ await doc.incrementalPatch({
 });
 ```
 
-Same shape for lock toggling — patch `status`, then append an audit entry to
+Same shape for lock toggling: patch `status`, then append an audit entry to
 the push-only log collection with a client-generated UUID. An
 `emergencyLockAll` loop (toggle every unlocked lock + one aggregate log entry
-with `lockId: 'ALL'`) is worth shipping for any hardware domain — outages and
+with `lockId: 'ALL'`) is worth shipping for any hardware domain; outages and
 emergencies correlate.
 
 ## Pricing with stock filtering
 
 When serving a price list from the replica, filter out items whose linked
-inventory has no effective stock — the kiosk should not sell ammunition the
+inventory has no effective stock; the kiosk should not sell ammunition the
 site ran out of during the outage. Use `effectiveStock` from
 [sync-flush.md](sync-flush.md), not the raw replica `stockLevel`.
 

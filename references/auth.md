@@ -6,11 +6,11 @@ dispatches on route metadata.
 | Client | Scheme | Credential | Notes |
 |---|---|---|---|
 | Staff PWA | `Authorization: Bearer <IdP ID token>` | Firebase ID token | Verified online; replica-checked offline |
-| Kiosk PWA | `X-Kiosk-Api-Key` header (or `?apiKey=`) | static key | Optional — empty key = open kiosk endpoints |
+| Kiosk PWA | `X-Kiosk-Api-Key` header (or `?apiKey=`) | static key | Optional; an empty key leaves the kiosk endpoints open |
 | Hardware (lock controllers) | `Authorization: HMAC id:ts:sig` | shared secret | Replay-protected, timing-safe |
 | Hardware (simple pollers) | `?token=` or `x-access-token` | static token | For devices that can't do HMAC |
 
-All secrets are mirrored env vars — the same value on the cloud and the local
+All secrets are mirrored env vars: the same value on the cloud and the local
 server, so terminals authenticate identically in both modes.
 
 ## Staff auth: online-verify, offline-lookup
@@ -22,7 +22,7 @@ uid against the replicated staff directory.
 
 **The fallback must be gated on actually being offline.** If it runs whenever
 `verifyIdToken` throws, a *forged* token rejected online falls through to the
-lenient path and is accepted — signature verification is then never enforced
+lenient path and is accepted; signature verification is then never enforced
 at all. This was a live bug in the earlier implementation.
 
 The offline path is an accepted trade-off, not a hole, because: the LAN is
@@ -31,6 +31,7 @@ checks still apply. Cheap hardening kept in the template: reject expired
 tokens even offline.
 
 ```ts
+// local-server/src/auth-guard.ts
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import * as admin from 'firebase-admin';
@@ -131,7 +132,7 @@ export function decodeOfflineToken(token: string): string {
   } catch {
     throw new UnauthorizedException('Invalid token');
   }
-  // Expiry still holds offline — a token stolen last month stays dead.
+  // Expiry still holds offline: a token stolen last month stays dead.
   if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) {
     throw new UnauthorizedException('Token expired');
   }
@@ -142,13 +143,14 @@ export function decodeOfflineToken(token: string): string {
 ```
 
 `getStaff` reads the replicated staff collection
-([replication.md](replication.md)) — which means offline login only works for
+([replication.md](replication.md)), which means offline login only works for
 staff whose directory entries replicated *before* the outage. Onboarding a new
 staff member during an outage is impossible by design.
 
 Usage on a route:
 
 ```ts
+// local-server/src/locks.controller.ts
 @Post('api/staff/locks/toggle')
 @UseGuards(AuthGuard)
 @SetMetadata(AUTH_TYPE_KEY, 'staff')
@@ -165,6 +167,7 @@ Header format: `Authorization: HMAC <terminalId>:<timestampMs>:<signature>`
 where `signature = HMAC-SHA256(terminalId + timestampMs, TERMINAL_SECRET)` hex.
 
 ```ts
+// local-server/src/hmac.util.ts
 import { createHmac, timingSafeEqual } from 'crypto';
 
 const REPLAY_WINDOW_MS = 30_000;   // |now - ts| beyond this = rejected
@@ -201,7 +204,7 @@ export function verifyHmac(
 Known limitations, accepted for on-site hardware on a private LAN: the secret
 is fleet-wide (one compromised controller = rotate everywhere), the signature
 does not cover the request body, and within the 30 s window an intercepted
-request could be replayed — TLS on the LAN is what actually prevents
+request could be replayed; TLS on the LAN is what actually prevents
 interception ([operations.md](operations.md)). If your hardware can hold
 per-device secrets, upgrade to per-device keys with the same verify shape.
 
@@ -210,10 +213,10 @@ per-device secrets, upgrade to per-device keys with the same verify shape.
 - Swapping the IdP (Clerk, Supabase, custom JWT) touches only `verifyIdToken`
   + `decodeOfflineToken`; keep the online-verify/offline-lookup split and the
   offline gate.
-- The role hierarchy is a plain ordered map — replace roles, keep the
+- The role hierarchy is a plain ordered map; replace roles, keep the
   comparison.
 - Not NestJS? The guard is one function of
-  `(headers, query, routeMeta) → principal | throw`; port it as middleware.
+  `(headers, query, routeMeta) => principal | throw`; port it as middleware.
 
 ## Checklist
 

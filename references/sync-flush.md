@@ -9,20 +9,18 @@ RxDB's own push replication harmless.
 
 ## The stock-delta overlay (why it exists)
 
-While offline, the replica's `stockLevel` is a frozen cloud snapshot — the
+While offline, the replica's `stockLevel` is a frozen cloud snapshot: the
 local server must not mutate it, or replication would push a value the cloud
 later recomputes differently. Instead, offline stock movements are recorded as
 append-only transactions plus an **in-memory delta map** overlaid at read time:
-
-```
-effectiveStock(item) = replicaSnapshot.stockLevel + localDelta(item)
-```
+`effectiveStock(item) = replicaSnapshot.stockLevel + localDelta(item)`.
 
 When the cloud confirms a transaction batch, those transactions' deltas fold
-out of the overlay — the cloud has applied the increments, and the updated
+out of the overlay: the cloud has applied the increments, and the updated
 `stockLevel` flows back down via pull replication.
 
 ```ts
+// local-server/src/stock.ts
 import { randomUUID } from 'crypto';
 import { Mutex } from 'async-mutex';
 import type { RxCollection } from 'rxdb';
@@ -101,7 +99,7 @@ export class StockService {
 
   /**
    * Fold ONLY the acknowledged transactions out of the overlay.
-   * Never clear the whole map on "flush finished" — a partially failed flush
+   * Never clear the whole map on "flush finished"; a partially failed flush
    * would erase deltas for transactions the cloud never applied, and
    * effectiveStock would silently revert to the stale snapshot (oversell).
    */
@@ -120,18 +118,19 @@ export class StockService {
 ```
 
 Restart caveat: the delta map is memory-only. On restart it is rebuilt by
-replaying unsynced transactions (`getUnsynced()` → re-add deltas) — do that in
+replaying unsynced transactions (`getUnsynced()`, then re-add deltas); do that in
 boot code. With memory storage the transactions themselves are gone too; see
 the storage decision in [replication.md](replication.md).
 
 ## The flush service
 
 Triggered by the network monitor's `online` event
-([network-failover.md](network-failover.md)) — and, because a flush attempt
+([network-failover.md](network-failover.md), and, because a flush attempt
 can fail while the network stays up, also by a slow retry timer whenever
 unsynced work remains.
 
 ```ts
+// local-server/src/sync-flush.service.ts
 export class SyncFlushService {
   private isFlushing = false;
   private retryTimer?: ReturnType<typeof setInterval>;
@@ -187,7 +186,7 @@ export class SyncFlushService {
     if (!transactions.length) return;
     try {
       const result = await this.post('/api/sync/inventory-transactions', { transactions });
-      // Trust ONLY the acknowledged IDs — never assume the whole batch landed.
+      // Trust ONLY the acknowledged IDs; never assume the whole batch landed.
       await this.stock.markSynced(result.syncedIds ?? []);
     } catch (err) {
       console.error('flushStockTransactions failed; will retry', err);
@@ -227,7 +226,7 @@ export class SyncFlushService {
 ```
 
 Note the bookings flush overlaps RxDB's bidirectional push (both deliver the
-document, keyed on the same ID — they converge). The flush exists because the
+document, keyed on the same ID, so they converge). The flush exists because the
 cloud may need to run follow-up logic on offline bookings (notifications,
 player linking); if yours doesn't, bidirectional replication alone suffices
 and you can drop that flush.
@@ -235,12 +234,12 @@ and you can drop that flush.
 ## Cloud ingestion endpoints
 
 Reference implementation as Next.js route handlers; the contract is plain
-JSON-over-POST — port freely. Three rules, all load-bearing:
+JSON-over-POST; port freely. Three rules, all load-bearing:
 
 1. **Authenticate.** These endpoints inject orders and move stock. A shared
    secret header (`x-sync-secret`, same env on both sides) is the minimum.
 2. **Idempotent per event ID.** Check whether the event was already applied
-   *inside a transaction with the apply* — a duplicate flush must be a no-op.
+   *inside a transaction with the apply*: a duplicate flush must be a no-op.
 3. **Stamp replication fields** on every write to a replicated collection.
 
 ```ts
@@ -279,7 +278,7 @@ export async function POST(req: NextRequest) {
       await db.runTransaction(async (t) => {
         const txRef = db.collection('inventory_transactions').doc(tx.id);
         const existing = await t.get(txRef);
-        if (existing.exists) return;   // already applied — at-least-once made harmless
+        if (existing.exists) return;   // already applied: at-least-once made harmless
 
         const itemRef = db.collection('inventory').doc(tx.inventoryItemId);
         t.update(itemRef, {
@@ -311,13 +310,13 @@ export async function POST(req: NextRequest) {
 ```
 
 Bookings and lock-logs ingestion follow the same skeleton, simpler because a
-`doc(id).set(...)` is naturally idempotent — auth check, strip RxDB internals
+`doc(id).set(...)` is naturally idempotent: auth check, strip RxDB internals
 (`_rev`, `_attachments`, `_meta`), convert date strings to `Date`, stamp
 `serverTimestamp` + `_deleted: false` + `syncedFromOffline: true`, and return
 `syncedIds`. One wrinkle worth keeping: mark offline bookings with a
 `syncedFromOffline: true` field so support can filter them, and be aware the
 set() gives them `Date`-typed `createdAt` while replicated docs may carry
-ISO strings — normalize in one place if your queries sort on it.
+ISO strings; normalize in one place if your queries sort on it.
 
 ## Checklist
 

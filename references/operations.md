@@ -11,7 +11,7 @@ TLS on `:443` for the LAN. Only 443 (and mDNS 5353/udp) are open.
 ## Environment
 
 ```bash
-# .env — local server
+# .env: local server
 LOCATION_ID=<site document ID in Firestore>
 PORT=3300
 HOST=127.0.0.1                     # nginx fronts it; never expose Node directly
@@ -28,8 +28,8 @@ KIOSK_API_KEY=<same as cloud env, or empty for open kiosk>
 
 The service-account JSON is a full-privilege cloud credential sitting on a box
 in the field: `chmod 600`, owned by the service user, and **never in the git
-checkout** (a stray key committed next to the code is a real incident pattern
-— add `*.json` service keys to `.gitignore` before the first deploy).
+checkout** (a stray key committed next to the code is a real incident pattern:
+add `*.json` service keys to `.gitignore` before the first deploy).
 
 ## systemd
 
@@ -73,7 +73,7 @@ journald watch) so the loss is known, not silent.
 
 Terminals are browser PWAs served over HTTPS from the cloud; browsers refuse
 mixed-content calls to a plain-HTTP LAN box, so the local server must speak
-HTTPS — with a self-signed CA installed on every terminal device.
+HTTPS, with a self-signed CA installed on every terminal device.
 
 ```bash
 # Self-signed cert, 10 years, with SANs for both the mDNS name and the static IP
@@ -109,33 +109,33 @@ sudo ufw allow 443/tcp && sudo ufw allow 5353/udp && sudo ufw reload
 ```
 
 Install `cert.pem` as a trusted CA on every terminal (this is the #1 field
-failure — a terminal without the cert fails over to *nothing*, silently):
+failure: a terminal without the cert fails over to *nothing*, silently):
 
 - **Linux/ChromeOS kiosk**: `sudo cp cert.pem /usr/local/share/ca-certificates/island.crt && sudo update-ca-certificates`, restart the browser.
-- **Android tablet**: Settings → Security → Install certificate → CA certificate.
+- **Android tablet**: Settings > Security > Install certificate > CA certificate.
 - **macOS**: `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain cert.pem`.
-- **Windows**: double-click → install to "Trusted Root Certification Authorities".
+- **Windows**: double-click, then install to "Trusted Root Certification Authorities".
 
 Keep an mDNS-less fallback: give the box a static IP, include that IP in the
 cert SANs and in the client's fallback list
-([network-failover.md](network-failover.md)) — Android's mDNS support in
+([network-failover.md](network-failover.md)); Android's mDNS support in
 particular is unreliable.
 
 ## Monitoring
 
-`GET /health` → `{ ok, locationId, mode, timestamp }` — liveness + which mode
+`GET /health` returns `{ ok, locationId, mode, timestamp }`; liveness + which mode
 the server believes it is in.
 
-`GET /status` → network state, per-replication `active`/`error`, and the
+`GET /status` returns network state, per-replication `active`/`error`, and the
 local-vs-cloud document counts. Reading it:
 
 | Signal | Meaning |
 |---|---|
-| `collections.X` ≈ `firestoreCounts.X` | replica healthy |
-| local 0, cloud > 0 | initial replication never completed — check rules/credentials |
+| `collections.X` close to `firestoreCounts.X` | replica healthy |
+| local 0, cloud > 0 | initial replication never completed; check rules/credentials |
 | `firestoreCounts.X === -1` | cloud unreachable right now (expected when offline) |
-| `replications[].error` set with recent `errorAt` | live replication failure — usually rules or a missing `serverTimestamp` on cloud writes |
-| unsynced counts growing while `mode: online` | flush failing — check `SYNC_SECRET` and cloud logs |
+| `replications[].error` set with recent `errorAt` | live replication failure, usually rules or a missing `serverTimestamp` on cloud writes |
+| unsynced counts growing while `mode: online` | flush failing; check `SYNC_SECRET` and cloud logs |
 
 Cloud-side, the site document is the operator surface: `lastHeartbeatAt`
 should move every ~30 s and `status` should be `online`. An admin "sites"
@@ -146,7 +146,7 @@ Local watchdog (belt-and-braces on top of systemd):
 
 ```bash
 #!/bin/bash
-# /opt/island/check-health.sh — cron: */5 * * * *
+# /opt/island/check-health.sh, cron: */5 * * * *
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3300/health)
 if [ "$STATUS" != "200" ]; then
   echo "$(date) - local server DOWN (HTTP $STATUS)" >> /var/log/island-health.log
@@ -190,5 +190,5 @@ simultaneous cloud outage would be noticed. Rollback = `git checkout $(cat
 - [ ] Service-account key 600, outside the repo
 - [ ] TLS cert has SANs for name AND static IP; CA installed on every terminal
 - [ ] mDNS + static-IP fallback both tested from a terminal
-- [ ] `/status` counts verified ≈ cloud after first sync
+- [ ] `/status` counts verified close to cloud after first sync
 - [ ] Outage drill performed: pull WAN, watch terminals fail over, restore, verify flush
